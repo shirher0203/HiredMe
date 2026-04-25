@@ -68,3 +68,25 @@ HIREDME is a full-stack web system composed of:
 - GitHub API
 
 ---
+
+## 📁 Project Structure
+
+**HiredMe** is organized as a two-workspace monorepo:
+
+```
+HiredMe/
+├── client/   # Frontend — React SPA
+└── server/   # Backend — Node.js/Express API
+    └── src/
+        ├── controllers/   # Request handlers
+        ├── services/      # Business logic
+        ├── models/        # Data models
+        ├── routes/        # Route definitions
+        ├── middlewares/   # Express middlewares
+        └── utils/         # Shared helpers
+```
+
+- **client** — the frontend application (user-facing React SPA).
+- **server** — the backend API that serves the client, handles authentication, business logic, database access, and AI integrations.
+
+---
