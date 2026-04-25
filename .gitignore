@@ -43,3 +43,18 @@ temp/
 # Secrets
 *.pem
 *.key
+
+# Additional environment files
+.env.*.local
+
+# Editors
+.cursor/
+
+# Project planning docs
+PROJECT_PLAN*.md
+
+# Workspace-specific dependencies and builds
+server/node_modules/
+client/node_modules/
+server/dist/
+client/dist/
