@@ -221,10 +221,9 @@ export function FitPreviewPage() {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         <header className="mb-10">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Resume &{" "}
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
             <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
-              job fit
+              Resume & job fit
             </span>
           </h1>
           <p className="mt-3 max-w-2xl text-lg text-slate-600">
