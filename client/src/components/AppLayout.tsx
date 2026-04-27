@@ -8,10 +8,10 @@ const activeClass =
 
 export function AppLayout() {
   return (
-    <div className="flex min-h-screen flex-col bg-white">
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-slate-50 to-white">
+      <header className="sticky top-0 z-10 border-b border-indigo-100/80 bg-white/90 shadow-sm shadow-indigo-500/5 backdrop-blur-md supports-[backdrop-filter]:bg-white/75">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
-          <span className="text-base font-semibold tracking-tight text-slate-900">
+          <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-base font-semibold tracking-tight text-transparent">
             HiredMe
           </span>
           <nav className="flex items-center gap-1" aria-label="Main">

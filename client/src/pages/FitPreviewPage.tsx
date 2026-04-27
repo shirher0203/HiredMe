@@ -58,8 +58,8 @@ function SkillChips({
 
 function JobCard({ job }: { job: JobAnalysis }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-900">Analyzed role</h2>
+    <section className="rounded-2xl border border-violet-100 bg-gradient-to-br from-white to-violet-50/40 p-6 shadow-md shadow-violet-500/5 ring-1 ring-violet-500/10">
+      <h2 className="text-lg font-semibold text-violet-950">Analyzed role</h2>
       <p className="mt-1 text-sm text-slate-600">{job.summary}</p>
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div>
@@ -76,7 +76,7 @@ function JobCard({ job }: { job: JobAnalysis }) {
             {job.requiredSkills.map((s) => (
               <span
                 key={s}
-                className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-800"
+                className="rounded-md border border-indigo-100 bg-indigo-50/80 px-2 py-0.5 text-indigo-950"
               >
                 {s}
               </span>
@@ -89,7 +89,7 @@ function JobCard({ job }: { job: JobAnalysis }) {
             {job.advantageSkills.map((s) => (
               <span
                 key={s}
-                className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-800"
+                className="rounded-md border border-violet-100 bg-violet-50/80 px-2 py-0.5 text-violet-950"
               >
                 {s}
               </span>
@@ -103,37 +103,37 @@ function JobCard({ job }: { job: JobAnalysis }) {
 
 function MatchSection({ match }: { match: MatchAnalysis }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/50 p-6 shadow-md shadow-indigo-500/5 ring-1 ring-indigo-500/10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-500">Overall fit</p>
-          <p className="text-5xl font-bold tracking-tight text-slate-900">
+          <p className="text-sm font-medium text-indigo-600/90">Overall fit</p>
+          <p className="text-5xl font-bold tracking-tight text-indigo-900">
             {match.finalScore}
-            <span className="text-2xl font-semibold text-slate-400">/100</span>
+            <span className="text-2xl font-semibold text-indigo-300">/100</span>
           </p>
         </div>
         <p className="max-w-xl text-sm text-slate-600">
           Final score blends{" "}
-          <strong className="font-semibold text-slate-800">70%</strong> skill
+          <strong className="font-semibold text-emerald-800">70%</strong> skill
           overlap and{" "}
-          <strong className="font-semibold text-slate-800">30%</strong> AI
+          <strong className="font-semibold text-violet-800">30%</strong> AI
           semantic match.
         </p>
       </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700/80">
             Skill overlap
           </p>
-          <p className="mt-1 text-3xl font-semibold text-slate-900">
+          <p className="mt-1 text-3xl font-semibold text-emerald-900">
             {match.algorithmicScore}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700/80">
             AI semantic score
           </p>
-          <p className="mt-1 text-3xl font-semibold text-slate-900">
+          <p className="mt-1 text-3xl font-semibold text-violet-900">
             {match.aiSemanticScore}
           </p>
         </div>
@@ -155,8 +155,8 @@ function MatchSection({ match }: { match: MatchAnalysis }) {
           variant="advantage"
         />
       </div>
-      <div className="mt-8 border-t border-slate-100 pt-6">
-        <h3 className="text-sm font-semibold text-slate-700">Explanation</h3>
+      <div className="mt-8 border-t border-indigo-100 pt-6">
+        <h3 className="text-sm font-semibold text-indigo-900">Explanation</h3>
         <p className="mt-2 text-sm leading-relaxed text-slate-700">
           {match.explanation}
         </p>
@@ -218,21 +218,23 @@ export function FitPreviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         <header className="mb-10">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Resume & job fit
+            Resume &{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+              job fit
+            </span>
           </h1>
           <p className="mt-3 max-w-2xl text-lg text-slate-600">
-            Upload your resume and paste the role you are targeting. Results below
-            use placeholder data until the API is connected.
+            Upload your resume and paste the role you are targeting.
           </p>
         </header>
 
         <form
           onSubmit={onSubmit}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="rounded-2xl border border-indigo-100 bg-white/90 p-6 shadow-lg shadow-indigo-500/5 ring-1 ring-indigo-500/10 backdrop-blur-sm"
           noValidate
         >
           <div className="space-y-6">
