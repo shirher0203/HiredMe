@@ -151,6 +151,15 @@ export function InterviewPage() {
     setEvaluation(null);
   }
 
+  function restartFromBeginning() {
+    if (loading) return;
+    setStep(0);
+    setDraft("");
+    setSubmittedAnswer(null);
+    setEvaluation(null);
+    setLoading(false);
+  }
+
   const isComplete = step >= total - 1 && evaluation !== null;
   const canSubmit =
     draft.trim().length > 0 && !loading && evaluation === null;
@@ -158,17 +167,27 @@ export function InterviewPage() {
   return (
     <div className="min-h-full bg-gradient-to-br from-indigo-50/50 via-white to-violet-50/40">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
-              Interview practice
-            </span>
-          </h1>
-          <p className="mt-3 max-w-2xl text-lg text-slate-600">
-            Answer each question in your own words. After you submit, you will
-            see feedback shaped like the live AI evaluation (static demo—no
-            backend yet).
-          </p>
+        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+                Interview practice
+              </span>
+            </h1>
+            <p className="mt-3 max-w-2xl text-lg text-slate-600">
+              Answer each question in your own words. After you submit, you will
+              see feedback shaped like the live AI evaluation (static demo—no
+              backend yet).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={restartFromBeginning}
+            disabled={loading}
+            className="shrink-0 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:from-indigo-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Finish test
+          </button>
         </header>
 
         <div className="mb-6">
@@ -260,8 +279,9 @@ export function InterviewPage() {
 
           {isComplete && (
             <p className="mt-8 text-center text-sm font-medium text-emerald-800">
-              You have finished this practice set. Refresh the page to start
-              over.
+              You have finished this practice set. Use{" "}
+              <span className="font-semibold">Finish test</span> above to start
+              again from question 1.
             </p>
           )}
         </section>
