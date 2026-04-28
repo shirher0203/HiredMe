@@ -25,12 +25,12 @@ export function AppLayout() {
               Match
             </NavLink>
             <NavLink
-              to="/test"
+              to="/interview"
               className={({ isActive }) =>
                 `${linkClass} ${isActive ? activeClass : ""}`
               }
             >
-              Test
+              Interview
             </NavLink>
           </nav>
         </div>
