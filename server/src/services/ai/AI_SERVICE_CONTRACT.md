@@ -333,3 +333,14 @@ const evaluation = await evaluateAnswer({
   Map them to appropriate HTTP responses.
 - **Demo-ready with `USE_MOCK_AI=true`.** Any environment that sets this
   env var gets the full flow with zero external I/O.
+
+### Real AI responses
+
+To use real Gemini API calls (instead of mock data), make sure your `.env` file includes:
+
+GEMINI_API_KEY=<your_api_key>
+GEMINI_MODEL=gemini-flash-lite-latest
+USE_MOCK_AI=false
+
+Note:
+The variable name must be exactly `USE_MOCK_AI`, and the value must be `false` (not "true").
