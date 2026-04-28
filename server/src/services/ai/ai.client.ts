@@ -12,7 +12,7 @@ import {
   type GenerativeModel,
 } from "@google/generative-ai";
 
-const DEFAULT_MODEL = "gemini-1.5-flash";
+const DEFAULT_MODEL = "gemini-flash-lite-latest";
 const SYSTEM_INSTRUCTION =
   "You are a precise JSON API. Respond with valid JSON only.";
 
