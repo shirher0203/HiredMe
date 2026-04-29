@@ -146,8 +146,9 @@ const fallbackEvaluation: AnswerEvaluation = {
 
 export async function evaluateAnswerStatic(
   questionId: string,
-  _userAnswer: string,
+  userAnswer: string,
 ): Promise<AnswerEvaluation> {
+  void userAnswer;
   await new Promise((r) => setTimeout(r, 300));
   return evaluationByQuestionId.get(questionId) ?? fallbackEvaluation;
 }
