@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { clearAuthSession, getAuthSession } from "../services/auth";
 
 const linkClass =
   "rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900";
@@ -7,6 +8,13 @@ const activeClass =
   "bg-indigo-50 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-700";
 
 export function AppLayout() {
+  const session = getAuthSession();
+
+  function logout() {
+    clearAuthSession();
+    window.location.assign("/auth/login");
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-slate-50 to-white">
       <header className="sticky top-0 z-10 border-b border-indigo-100/80 bg-white/90 shadow-sm shadow-indigo-500/5 backdrop-blur-md supports-[backdrop-filter]:bg-white/75">
@@ -32,6 +40,25 @@ export function AppLayout() {
             >
               Interview
             </NavLink>
+            {session ? (
+              <button
+                type="button"
+                onClick={logout}
+                className={linkClass}
+                title={session.user.email}
+              >
+                Logout
+              </button>
+            ) : (
+              <NavLink
+                to="/auth/login"
+                className={({ isActive }) =>
+                  `${linkClass} ${isActive ? activeClass : ""}`
+                }
+              >
+                Login
+              </NavLink>
+            )}
           </nav>
         </div>
       </header>
