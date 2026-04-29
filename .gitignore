@@ -46,6 +46,7 @@ temp/
 
 # Additional environment files
 .env.*.local
+.env*
 
 # Editors
 .cursor/
@@ -60,3 +61,6 @@ server/dist/
 client/dist/
 
 helper/
+
+server/.env*
+client/.env*
