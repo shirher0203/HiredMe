@@ -29,6 +29,7 @@ import { callAi } from "./ai.client";
 import { parseJsonFromAi } from "../../utils/safe-json";
 import {
   buildAnalyzeJobPrompt,
+  buildAnalyzeProfilePrompt,
   buildSemanticMatchPrompt,
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
@@ -198,67 +199,6 @@ async function withOneRetry<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Inline prompt for analyzeProfile (no builder in prompts.ts).
-// Kept private — mirrors the style of prompts.ts without duplicating it.
-// ---------------------------------------------------------------------------
-
-function buildAnalyzeProfilePromptInline(profile: ProfileInput): string {
-  const schema = `{
-  "seniorityEstimate": "junior" | "mid" | "senior",
-  "strengths": string[],
-  "weaknesses": string[],
-  "suggestedRoles": string[],
-  "summary": string
-}`;
-
-  const header = [
-    "You are a precise JSON API.",
-    "Return ONLY valid JSON.",
-    "Do not include explanations.",
-    "Do not include markdown.",
-    "Do not wrap the response in code fences.",
-    "The response must be a single JSON object and nothing else.",
-    "Do not return arrays as the root response.",
-    "Do not add any fields beyond those specified in the schema.",
-    "All string-array fields must contain strings only.",
-  ].join("\n");
-
-  const skillsLine =
-    profile.skills.length === 0
-      ? "Candidate skills: (none)"
-      : `Candidate skills: ${profile.skills
-          .map((s) => JSON.stringify(s))
-          .join(", ")}`;
-
-  const projectsLine =
-    profile.projects.length === 0
-      ? "Candidate projects: (none)"
-      : `Candidate projects: ${profile.projects
-          .map((p) => JSON.stringify(p))
-          .join(", ")}`;
-
-  const lines = [
-    header,
-    "",
-    "Task: analyze the candidate profile below and produce a structured summary.",
-    "",
-    "Respond with a single JSON object that matches exactly this schema:",
-    schema,
-    "",
-    `Experience years: ${profile.experienceYears}`,
-    skillsLine,
-    projectsLine,
-  ];
-  if (profile.education) {
-    lines.push(`Education: ${profile.education}`);
-  }
-  if (profile.goals) {
-    lines.push(`Goals: ${profile.goals}`);
-  }
-  return lines.join("\n");
-}
-
-// ---------------------------------------------------------------------------
 // Validators per target type
 // ---------------------------------------------------------------------------
 
@@ -386,7 +326,7 @@ export async function analyzeProfile(
   if (isMockMode()) {
     return mockProfileAnalysis;
   }
-  const prompt = buildAnalyzeProfilePromptInline(profile);
+  const prompt = buildAnalyzeProfilePrompt(profile);
   return withOneRetry<ProfileAnalysis>(
     "analyzeProfile",
     prompt,
