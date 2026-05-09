@@ -63,4 +63,6 @@ client/dist/
 helper/
 
 server/.env*
+!server/.env.example
 client/.env*
+!client/.env.example

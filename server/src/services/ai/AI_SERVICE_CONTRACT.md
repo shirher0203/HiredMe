@@ -21,15 +21,20 @@ The `ai.service` module provides five AI-powered services:
 - **Answer evaluation** — score a single interview answer and return
   feedback.
 
-Two runtime modes are supported:
+Two runtime modes are supported. **Real Gemini is the default.** Mock
+mode is only a developer / test convenience and must be opted into
+explicitly.
 
-- **Real mode (Gemini).** `ai.client.ts` calls the Gemini API. Responses
-  are parsed by `safe-json.ts`, then validated and clamped inside
-  `ai.service.ts`.
-- **Mock mode (`USE_MOCK_AI=true`).** No external calls. Deterministic
-  mock responses are returned immediately. `calculateMatch` still runs
-  the deterministic matching formula against the provided profile and
-  job, so mock mode exercises the real scoring path end-to-end.
+- **Real mode (Gemini) — default.** `ai.client.ts` calls the Gemini API.
+  Responses are parsed by `safe-json.ts`, then validated and clamped
+  inside `ai.service.ts`. Requires `GEMINI_API_KEY` to be set. If the key
+  is missing, every AI call throws — the system does **not** fall back to
+  mock data silently.
+- **Mock mode — opt-in, only when `USE_MOCK_AI === "true"`.** No external
+  calls. Deterministic mock responses are returned immediately.
+  `calculateMatch` still runs the deterministic matching formula against
+  the provided profile and job, so mock mode exercises the real scoring
+  path end-to-end. Intended for automated tests and offline development.
 
 All functions are async and return plain objects — no streaming, no
 side effects, no DB writes.
@@ -245,15 +250,26 @@ All numeric fields are clamped to 0-100 after validation.
 
 ---
 
-## 4. Mock mode
+## 4. Runtime modes
 
-`USE_MOCK_AI=true` switches every service function to deterministic
-constants from `mock-ai.responses.ts`:
+**Real Gemini is the default.** Do not enable mock mode in production
+environments. Mock mode exists only for automated tests and offline
+development.
+
+Mock mode activates **only** when `process.env.USE_MOCK_AI === "true"`.
+Any other value — including unset, empty, `"false"`, `"1"`, or
+`"TRUE"` — runs the real Gemini path. In real mode, a missing
+`GEMINI_API_KEY` causes every AI call to throw — the system never
+silently falls back to mock responses.
+
+Automated tests must set `USE_MOCK_AI=true` in `beforeAll` and delete
+it in `afterAll` so cross-suite runs do not leak the setting.
+
+When mock mode is active:
 
 - No external API calls are made.
 - `callAi` is never invoked — attempting to invoke it in mock mode throws.
-- Responses are identical on every call, so tests and demos are
-  reproducible.
+- Responses are identical on every call, so tests are reproducible.
 - `calculateMatch` still runs the deterministic matching formula against
   the caller's profile and job, using `mockSemanticMatch.aiSemanticScore`
   as the 30% AI sub-score. So the full scoring path is exercised with
@@ -263,7 +279,6 @@ Use cases:
 
 - Automated tests (no network I/O in CI).
 - Local development without a Gemini key.
-- Classroom demos that must not be blocked by rate limits.
 
 ---
 
@@ -331,16 +346,23 @@ const evaluation = await evaluateAnswer({
   descriptive `Error`s whose messages name the function and the offending
   field (e.g. `"evaluateAnswer: field 'score' is not numeric (received \"high\")"`).
   Map them to appropriate HTTP responses.
-- **Demo-ready with `USE_MOCK_AI=true`.** Any environment that sets this
-  env var gets the full flow with zero external I/O.
+- **Default is real Gemini.** A working `server/.env` must include
+  `GEMINI_API_KEY`. `USE_MOCK_AI=true` is an opt-in for automated tests
+  and offline development only.
 
-### Real AI responses
+### Environment setup
 
-To use real Gemini API calls (instead of mock data), make sure your `.env` file includes:
+Copy `server/.env.example` to `server/.env` and fill in `GEMINI_API_KEY`.
+The minimum required keys are:
 
+```
+PORT=5000
 GEMINI_API_KEY=<your_api_key>
 GEMINI_MODEL=gemini-flash-lite-latest
 USE_MOCK_AI=false
+AI_TIMEOUT_MS=20000
+DEBUG_AI=false
+```
 
-Note:
-The variable name must be exactly `USE_MOCK_AI`, and the value must be `false` (not "true").
+The variable name must be exactly `USE_MOCK_AI`, and any value other
+than the string `"true"` runs the real Gemini path.
