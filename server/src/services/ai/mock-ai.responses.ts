@@ -12,6 +12,7 @@ import type {
   SemanticMatchAiResponse,
 } from "./ai.types";
 import type { JobAnalysis } from "../matching/matching.types";
+import type { ParsedResume } from "./parsed-resume.types";
 
 export const mockProfileAnalysis: ProfileAnalysis = {
   seniorityEstimate: "junior",
@@ -82,6 +83,69 @@ export const mockInterviewQuestions: InterviewQuestion[] = [
       "STAR-style structure, specific context and action, evidence of listening and compromise, focus on the decision process rather than blame, and a concrete outcome with a lesson learned.",
   },
 ];
+
+export const mockParsedResume: ParsedResume = {
+  raw_text_hash: "",
+  personal_info: {
+    full_name: "Dana Levi",
+    email: "dana.levi@example.com",
+    phone: "+972-50-123-4567",
+    location: "Tel Aviv, Israel",
+    linkedin_url: "https://www.linkedin.com/in/dana-levi",
+    portfolio_or_github_url: "https://github.com/dana-levi",
+  },
+  professional_summary:
+    "Junior full-stack developer with one year of hands-on experience building React and Node services on a MongoDB-backed stack.",
+  work_experience: [
+    {
+      company_name: "Acme Labs",
+      job_title: "Junior Full-Stack Developer",
+      start_date: "2024-07",
+      end_date: "present",
+      location: "Tel Aviv, Israel",
+      responsibilities: [
+        "Built React components with TypeScript for the internal admin dashboard.",
+        "Implemented REST endpoints in Node and Express backed by MongoDB.",
+      ],
+      achievements: [
+        "Reduced dashboard load time by 40% by memoizing heavy list views.",
+      ],
+    },
+  ],
+  education: [
+    {
+      institution_name: "Tel Aviv University",
+      degree_type: "BSc",
+      field_of_study: "Computer Science",
+      start_date: "2021-10",
+      end_date: "2024-07",
+    },
+  ],
+  skills: {
+    technical_skills: ["react", "node", "typescript", "mongodb"],
+    soft_skills: ["communication", "ownership"],
+    tools_and_software: ["git", "docker", "vscode"],
+  },
+  projects: [
+    {
+      project_name: "HiredMe",
+      description:
+        "Final project: an AI-powered platform that matches profiles to jobs and simulates interviews.",
+      technologies_used: ["react", "node", "mongodb", "typescript"],
+      link: "https://github.com/shirher0203/HiredMe",
+    },
+  ],
+  languages: [
+    { language: "Hebrew", proficiency_level: "native" },
+    { language: "English", proficiency_level: "fluent" },
+  ],
+  certifications: [],
+  awards: [],
+  parsed_metadata: {
+    language_detected: "en",
+    years_of_experience_estimate: 1,
+  },
+};
 
 export const mockAnswerEvaluation: AnswerEvaluation = {
   score: 78,

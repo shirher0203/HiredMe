@@ -9,7 +9,7 @@ calls these from controllers and owns persistence, HTTP, and auth.
 
 ## 1. Overview
 
-The `ai.service` module provides five AI-powered services:
+The `ai.service` module provides six AI-powered services:
 
 - **Profile analysis** — turn a user's profile into a structured summary.
 - **Job analysis** — extract required/advantage skills and seniority from a
@@ -20,6 +20,8 @@ The `ai.service` module provides five AI-powered services:
   to the user and (optionally) the target job.
 - **Answer evaluation** — score a single interview answer and return
   feedback.
+- **Resume parsing** — convert free-text resume content into a strictly
+  validated `ParsedResume` that the Backend may persist directly.
 
 Two runtime modes are supported. **Real Gemini is the default.** Mock
 mode is only a developer / test convenience and must be opted into
@@ -223,6 +225,166 @@ evaluateAnswer(input: EvaluateAnswerInput): Promise<AnswerEvaluation>
 | `improvementTips` | `string[]`  | 2-3 concrete suggestions.                                                        |
 
 All numeric fields are clamped to 0-100 after validation.
+
+---
+
+### 2.6 `parseResume`
+
+```ts
+parseResume(resumeText: string): Promise<ParsedResume>
+```
+
+Converts a plain-text resume (already extracted from PDF/DOC by the
+Backend or a separate service) into a stable structured object suitable
+for persistence in the database.
+
+**Input**
+
+| Field        | Type     | Notes                                                           |
+| ------------ | -------- | --------------------------------------------------------------- |
+| `resumeText` | `string` | Plain text. Must be non-empty. Truncated internally at 20k chars. |
+
+**Output — `ParsedResume`**
+
+Every top-level key is REQUIRED. Unknown text becomes `null`, unknown
+lists become `[]`. The Backend can rely on the shape without optional
+chaining.
+
+| Field                   | Type                                    | Meaning                                                                          |
+| ----------------------- | --------------------------------------- | -------------------------------------------------------------------------------- |
+| `raw_text_hash`         | `string`                                | SHA-256 of the original resume text, hex-encoded. Computed deterministically by Role 4. Use it as a cache key to avoid re-parsing unchanged resumes. |
+| `personal_info`         | `ParsedResumePersonalInfo`              | Contact details. Each field is `string \| null`.                                |
+| `professional_summary`  | `string \| null`                        | Short summary paragraph, or `null` if not present.                               |
+| `work_experience`       | `ParsedResumeWorkExperience[]`          | Always an array. Empty if the resume has no work history.                        |
+| `education`             | `ParsedResumeEducation[]`               | Always an array.                                                                 |
+| `skills.technical_skills` | `string[]`                            | **Normalized** via `normalizeSkills` (e.g. `"React.js"` → `"react"`).           |
+| `skills.soft_skills`    | `string[]`                              | Trimmed and deduped. Not run through the skill aliaser.                          |
+| `skills.tools_and_software` | `string[]`                          | **Normalized** via `normalizeSkills`.                                            |
+| `projects`              | `ParsedResumeProject[]`                 | Each project's `technologies_used` is normalized via `normalizeSkills`.         |
+| `languages`             | `ParsedResumeLanguage[]`                | Spoken/written languages and proficiency.                                        |
+| `certifications`        | `ParsedResumeCertification[]`           | Always an array.                                                                 |
+| `awards`                | `ParsedResumeAward[]`                   | Always an array.                                                                 |
+| `parsed_metadata`       | `ParsedResumeMetadata`                  | See below.                                                                       |
+
+**`ParsedResumeMetadata`**
+
+| Field                           | Type                                                  | Meaning                                                                                   |
+| ------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `language_detected`             | `"en" \| "he" \| "mixed" \| "other" \| null`          | Detected primary language of the resume. Any value outside the enum becomes `null`.       |
+| `years_of_experience_estimate`  | `number`                                              | Non-negative integer. AI-provided; clamped to `>= 0` and rounded.                         |
+
+**Dates.** `start_date` and `end_date` are free-form strings the prompt
+asks the AI to format as `"YYYY-MM"` when month is known, `"YYYY"` when
+only year is known, or `"present"` for ongoing roles. Unknown dates are
+`null`. Role 4 does not validate the date format — the prompt enforces
+it and downstream code should tolerate variants gracefully.
+
+**Validation.**
+
+- Runs in production, not only in tests. If the AI returns an object
+  with a missing or extra top-level key, the wrong type for a required
+  array or object, or a non-string inside a string array, the response
+  is rejected and `parseResume` retries once with a stricter prompt.
+- If the retry also fails, `parseResume` throws a descriptive error
+  named after the offending field (e.g. `"parseResume: field
+  'work_experience[0].responsibilities[1]' is not a string"`).
+- `ai.service` never silently repairs structurally invalid responses.
+  Backend persistence can rely on the returned shape.
+
+**Normalization (deterministic).**
+
+- `skills.technical_skills`, `skills.tools_and_software`, and each
+  project's `technologies_used` are run through `normalizeSkills`.
+- Every `string | null` field is trimmed. Empty strings are coerced to
+  `null`.
+- `language_detected` is lowercased and compared against the enum.
+- `raw_text_hash` is always computed by Role 4 after validation —
+  never trusted from the AI.
+
+**Retry.**
+
+- One retry on parse/validation failure. No retry on
+  `GEMINI_API_KEY` missing, SDK errors, or empty-input callers.
+- Same single-retry helper all other `ai.service` functions use.
+
+**Mock mode.**
+
+- Returns `mockParsedResume` with `raw_text_hash` recomputed from the
+  actual input. `callAi` is never invoked.
+
+**Example — realistic `ParsedResume`**
+
+```json
+{
+  "raw_text_hash": "0c8f…e7a2",
+  "personal_info": {
+    "full_name": "Dana Levi",
+    "email": "dana.levi@example.com",
+    "phone": "+972-50-123-4567",
+    "location": "Tel Aviv, Israel",
+    "linkedin_url": "https://www.linkedin.com/in/dana-levi",
+    "portfolio_or_github_url": "https://github.com/dana-levi"
+  },
+  "professional_summary": "Junior full-stack developer with one year of hands-on experience building React and Node services on a MongoDB-backed stack.",
+  "work_experience": [
+    {
+      "company_name": "Acme Labs",
+      "job_title": "Junior Full-Stack Developer",
+      "start_date": "2024-07",
+      "end_date": "present",
+      "location": "Tel Aviv, Israel",
+      "responsibilities": [
+        "Built React components with TypeScript for the internal admin dashboard.",
+        "Implemented REST endpoints in Node and Express backed by MongoDB."
+      ],
+      "achievements": [
+        "Reduced dashboard load time by 40% by memoizing heavy list views."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution_name": "Tel Aviv University",
+      "degree_type": "BSc",
+      "field_of_study": "Computer Science",
+      "start_date": "2021-10",
+      "end_date": "2024-07"
+    }
+  ],
+  "skills": {
+    "technical_skills": ["react", "node", "typescript", "mongodb"],
+    "soft_skills": ["communication", "ownership"],
+    "tools_and_software": ["git", "docker", "vscode"]
+  },
+  "projects": [
+    {
+      "project_name": "HiredMe",
+      "description": "Final project: an AI-powered platform that matches profiles to jobs and simulates interviews.",
+      "technologies_used": ["react", "node", "mongodb", "typescript"],
+      "link": "https://github.com/shirher0203/HiredMe"
+    }
+  ],
+  "languages": [
+    { "language": "Hebrew", "proficiency_level": "native" },
+    { "language": "English", "proficiency_level": "fluent" }
+  ],
+  "certifications": [],
+  "awards": [],
+  "parsed_metadata": {
+    "language_detected": "en",
+    "years_of_experience_estimate": 1
+  }
+}
+```
+
+**Integration notes for the Backend.**
+
+- Persist the returned `ParsedResume` as-is. The shape is stable and
+  every top-level key is always present.
+- Use `raw_text_hash` as the cache key. If the hash matches an earlier
+  persisted resume, skip re-calling `parseResume`.
+- OCR / PDF extraction is NOT Role 4's concern. Pass in plain text only.
+- Resume upload endpoints, file storage, and auth belong to Role 3.
 
 ---
 

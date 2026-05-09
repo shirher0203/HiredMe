@@ -10,6 +10,7 @@
 // deterministic code, never taken from the model.
 
 import "dotenv/config";
+import { createHash } from "crypto";
 
 import type {
   ProfileInput,
@@ -24,23 +25,39 @@ import type {
   EvaluateAnswerInput,
   SemanticMatchAiResponse,
 } from "./ai.types";
+import type {
+  ParsedResume,
+  ParsedResumePersonalInfo,
+  ParsedResumeWorkExperience,
+  ParsedResumeEducation,
+  ParsedResumeSkills,
+  ParsedResumeProject,
+  ParsedResumeLanguage,
+  ParsedResumeCertification,
+  ParsedResumeAward,
+  ParsedResumeMetadata,
+  ParsedResumeLanguageDetected,
+} from "./parsed-resume.types";
 
 import { callAi } from "./ai.client";
 import { parseJsonFromAi } from "../../utils/safe-json";
 import {
   buildAnalyzeJobPrompt,
   buildAnalyzeProfilePrompt,
+  buildParseResumePrompt,
   buildSemanticMatchPrompt,
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
+import { normalizeSkills } from "../matching/skills-normalizer";
 import {
   mockProfileAnalysis,
   mockJobAnalysis,
   mockSemanticMatch,
   mockInterviewQuestions,
   mockAnswerEvaluation,
+  mockParsedResume,
 } from "./mock-ai.responses";
 
 // ---------------------------------------------------------------------------
@@ -196,6 +213,324 @@ async function withOneRetry<T>(
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// ParsedResume helpers (internal)
+// ---------------------------------------------------------------------------
+
+const RESUME_TOP_KEYS = [
+  "personal_info",
+  "professional_summary",
+  "work_experience",
+  "education",
+  "skills",
+  "projects",
+  "languages",
+  "certifications",
+  "awards",
+  "parsed_metadata",
+] as const;
+
+const RESUME_LANGUAGE_VALUES = ["en", "he", "mixed", "other"] as const;
+
+function sha256Hex(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function coerceNullableString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function requireArray(
+  value: unknown,
+  fieldName: string,
+  functionName: string
+): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${functionName}: field '${fieldName}' is not an array`);
+  }
+  return value;
+}
+
+function requireObject(
+  value: unknown,
+  fieldName: string,
+  functionName: string
+): Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw new Error(`${functionName}: field '${fieldName}' is not an object`);
+  }
+  return value;
+}
+
+function normalizeStringArrayField(
+  value: unknown,
+  fieldName: string,
+  functionName: string
+): string[] {
+  const arr = requireArray(value, fieldName, functionName);
+  const out: string[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    if (typeof item !== "string") {
+      throw new Error(
+        `${functionName}: field '${fieldName}[${i}]' is not a string`
+      );
+    }
+    const trimmed = item.trim();
+    if (trimmed !== "") {
+      out.push(trimmed);
+    }
+  }
+  return out;
+}
+
+function coerceLanguageDetected(value: unknown): ParsedResumeLanguageDetected {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if ((RESUME_LANGUAGE_VALUES as readonly string[]).includes(lower)) {
+      return lower as ParsedResumeLanguageDetected;
+    }
+  }
+  return null;
+}
+
+function validatePersonalInfo(
+  raw: Record<string, unknown>
+): ParsedResumePersonalInfo {
+  return {
+    full_name: coerceNullableString(raw.full_name),
+    email: coerceNullableString(raw.email),
+    phone: coerceNullableString(raw.phone),
+    location: coerceNullableString(raw.location),
+    linkedin_url: coerceNullableString(raw.linkedin_url),
+    portfolio_or_github_url: coerceNullableString(raw.portfolio_or_github_url),
+  };
+}
+
+function validateWorkExperienceEntry(
+  raw: unknown,
+  index: number,
+  fn: string
+): ParsedResumeWorkExperience {
+  const obj = requireObject(raw, `work_experience[${index}]`, fn);
+  return {
+    company_name: coerceNullableString(obj.company_name),
+    job_title: coerceNullableString(obj.job_title),
+    start_date: coerceNullableString(obj.start_date),
+    end_date: coerceNullableString(obj.end_date),
+    location: coerceNullableString(obj.location),
+    responsibilities: normalizeStringArrayField(
+      obj.responsibilities,
+      `work_experience[${index}].responsibilities`,
+      fn
+    ),
+    achievements: normalizeStringArrayField(
+      obj.achievements,
+      `work_experience[${index}].achievements`,
+      fn
+    ),
+  };
+}
+
+function validateEducationEntry(
+  raw: unknown,
+  index: number,
+  fn: string
+): ParsedResumeEducation {
+  const obj = requireObject(raw, `education[${index}]`, fn);
+  return {
+    institution_name: coerceNullableString(obj.institution_name),
+    degree_type: coerceNullableString(obj.degree_type),
+    field_of_study: coerceNullableString(obj.field_of_study),
+    start_date: coerceNullableString(obj.start_date),
+    end_date: coerceNullableString(obj.end_date),
+  };
+}
+
+function validateSkillsBlock(
+  raw: Record<string, unknown>,
+  fn: string
+): ParsedResumeSkills {
+  const technical = normalizeStringArrayField(
+    raw.technical_skills,
+    "skills.technical_skills",
+    fn
+  );
+  const tools = normalizeStringArrayField(
+    raw.tools_and_software,
+    "skills.tools_and_software",
+    fn
+  );
+  const soft = normalizeStringArrayField(raw.soft_skills, "skills.soft_skills", fn);
+  return {
+    technical_skills: normalizeSkills(technical),
+    soft_skills: soft,
+    tools_and_software: normalizeSkills(tools),
+  };
+}
+
+function validateProjectEntry(
+  raw: unknown,
+  index: number,
+  fn: string
+): ParsedResumeProject {
+  const obj = requireObject(raw, `projects[${index}]`, fn);
+  const technologies = normalizeStringArrayField(
+    obj.technologies_used,
+    `projects[${index}].technologies_used`,
+    fn
+  );
+  return {
+    project_name: coerceNullableString(obj.project_name),
+    description: coerceNullableString(obj.description),
+    technologies_used: normalizeSkills(technologies),
+    link: coerceNullableString(obj.link),
+  };
+}
+
+function validateLanguageEntry(
+  raw: unknown,
+  index: number,
+  fn: string
+): ParsedResumeLanguage {
+  const obj = requireObject(raw, `languages[${index}]`, fn);
+  return {
+    language: coerceNullableString(obj.language),
+    proficiency_level: coerceNullableString(obj.proficiency_level),
+  };
+}
+
+function validateCertificationEntry(
+  raw: unknown,
+  index: number,
+  fn: string
+): ParsedResumeCertification {
+  const obj = requireObject(raw, `certifications[${index}]`, fn);
+  return {
+    name: coerceNullableString(obj.name),
+    issuer: coerceNullableString(obj.issuer),
+    date: coerceNullableString(obj.date),
+  };
+}
+
+function validateAwardEntry(
+  raw: unknown,
+  index: number,
+  fn: string
+): ParsedResumeAward {
+  const obj = requireObject(raw, `awards[${index}]`, fn);
+  return {
+    title: coerceNullableString(obj.title),
+    issuer: coerceNullableString(obj.issuer),
+    date: coerceNullableString(obj.date),
+  };
+}
+
+function validateMetadata(
+  raw: Record<string, unknown>,
+  fn: string
+): ParsedResumeMetadata {
+  const yearsRaw = raw.years_of_experience_estimate;
+  const years = toNumberScore(yearsRaw, "parsed_metadata.years_of_experience_estimate", fn);
+  if (years < 0) {
+    throw new Error(
+      `${fn}: field 'parsed_metadata.years_of_experience_estimate' must be >= 0 (received ${years})`
+    );
+  }
+  return {
+    language_detected: coerceLanguageDetected(raw.language_detected),
+    years_of_experience_estimate: Math.round(years),
+  };
+}
+
+function buildParsedResumeFromParsed(
+  parsed: Record<string, unknown>,
+  fn: string
+): Omit<ParsedResume, "raw_text_hash"> {
+  for (const key of RESUME_TOP_KEYS) {
+    if (!(key in parsed)) {
+      throw new Error(`${fn}: missing required top-level key '${key}'`);
+    }
+  }
+  for (const key of Object.keys(parsed)) {
+    if (!(RESUME_TOP_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`${fn}: unexpected top-level key '${key}'`);
+    }
+  }
+
+  const personal = validatePersonalInfo(
+    requireObject(parsed.personal_info, "personal_info", fn)
+  );
+
+  const workRaw = requireArray(parsed.work_experience, "work_experience", fn);
+  const work = workRaw.map((entry, i) =>
+    validateWorkExperienceEntry(entry, i, fn)
+  );
+
+  const eduRaw = requireArray(parsed.education, "education", fn);
+  const education = eduRaw.map((entry, i) => validateEducationEntry(entry, i, fn));
+
+  const skills = validateSkillsBlock(
+    requireObject(parsed.skills, "skills", fn),
+    fn
+  );
+
+  const projectsRaw = requireArray(parsed.projects, "projects", fn);
+  const projects = projectsRaw.map((entry, i) =>
+    validateProjectEntry(entry, i, fn)
+  );
+
+  const languagesRaw = requireArray(parsed.languages, "languages", fn);
+  const languages = languagesRaw.map((entry, i) =>
+    validateLanguageEntry(entry, i, fn)
+  );
+
+  const certsRaw = requireArray(parsed.certifications, "certifications", fn);
+  const certifications = certsRaw.map((entry, i) =>
+    validateCertificationEntry(entry, i, fn)
+  );
+
+  const awardsRaw = requireArray(parsed.awards, "awards", fn);
+  const awards = awardsRaw.map((entry, i) => validateAwardEntry(entry, i, fn));
+
+  const metadata = validateMetadata(
+    requireObject(parsed.parsed_metadata, "parsed_metadata", fn),
+    fn
+  );
+
+  return {
+    personal_info: personal,
+    professional_summary: coerceNullableString(parsed.professional_summary),
+    work_experience: work,
+    education,
+    skills,
+    projects,
+    languages,
+    certifications,
+    awards,
+    parsed_metadata: metadata,
+  };
+}
+
+function validateParsedResume(raw: string): Omit<ParsedResume, "raw_text_hash"> {
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  if (!isPlainObject(parsed)) {
+    throw new Error("parseResume: top-level value is not an object");
+  }
+  return buildParsedResumeFromParsed(parsed, "parseResume");
 }
 
 // ---------------------------------------------------------------------------
@@ -431,6 +766,27 @@ export async function evaluateAnswer(
   );
 }
 
+export async function parseResume(resumeText: string): Promise<ParsedResume> {
+  if (typeof resumeText !== "string" || resumeText.trim() === "") {
+    throw new Error("parseResume: resumeText must be a non-empty string");
+  }
+
+  const rawHash = sha256Hex(resumeText);
+
+  if (isMockMode()) {
+    return { ...mockParsedResume, raw_text_hash: rawHash };
+  }
+
+  const prompt = buildParseResumePrompt(resumeText);
+  const body = await withOneRetry<Omit<ParsedResume, "raw_text_hash">>(
+    "parseResume",
+    prompt,
+    validateParsedResume
+  );
+
+  return { ...body, raw_text_hash: rawHash };
+}
+
 // ---------------------------------------------------------------------------
 // Exported for testing — internal helpers used by the mock test suite.
 // Not part of the public backend contract.
@@ -442,4 +798,8 @@ export const __testables = {
   requireString,
   requireStringArray,
   ensureQuestionIds,
+  sha256Hex,
+  coerceNullableString,
+  coerceLanguageDetected,
+  validateParsedResume,
 };

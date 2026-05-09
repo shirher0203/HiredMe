@@ -23,6 +23,7 @@ import {
   calculateMatch,
   generateInterviewQuestions,
   evaluateAnswer,
+  parseResume,
 } from "../src/services/ai/ai.service";
 import type { ProfileInput, JobAnalysis } from "../src/services/matching/matching.types";
 
@@ -51,6 +52,37 @@ const CANDIDATE_ANSWER = [
   "the state changes. I keep side effects inside custom hooks so the UI",
   "components stay predictable and easy to test.",
 ].join(" ");
+
+const RESUME_TEXT = [
+  "Dana Levi",
+  "dana.levi@example.com | +972-50-123-4567 | Tel Aviv, Israel",
+  "https://www.linkedin.com/in/dana-levi | https://github.com/dana-levi",
+  "",
+  "Summary",
+  "Junior full-stack developer with one year of hands-on experience building",
+  "React and Node services on a MongoDB-backed stack.",
+  "",
+  "Experience",
+  "Acme Labs — Junior Full-Stack Developer (Jul 2024 - present), Tel Aviv",
+  "- Built React components with TypeScript for the internal admin dashboard.",
+  "- Implemented REST endpoints in Node and Express backed by MongoDB.",
+  "- Reduced dashboard load time by 40% by memoizing heavy list views.",
+  "",
+  "Education",
+  "Tel Aviv University — BSc in Computer Science (2021-2024).",
+  "",
+  "Skills",
+  "Technical: React.js, Node.js, TypeScript, MongoDB",
+  "Tools: Git, Docker, VSCode",
+  "Soft: communication, ownership",
+  "",
+  "Projects",
+  "HiredMe — AI-powered platform that matches profiles to jobs and simulates interviews.",
+  "Built with React, Node, MongoDB, and TypeScript. https://github.com/shirher0203/HiredMe",
+  "",
+  "Languages",
+  "Hebrew (native), English (fluent).",
+].join("\n");
 
 async function run<T>(
   name: string,
@@ -124,10 +156,13 @@ async function main(): Promise<void> {
   });
   if (evaluateStep.ok) passed++;
 
-  console.log("");
-  console.log(`${passed}/5 passed`);
+  const resumeStep = await run("parseResume", () => parseResume(RESUME_TEXT));
+  if (resumeStep.ok) passed++;
 
-  process.exit(passed === 5 ? 0 : 1);
+  console.log("");
+  console.log(`${passed}/6 passed`);
+
+  process.exit(passed === 6 ? 0 : 1);
 }
 
 main();

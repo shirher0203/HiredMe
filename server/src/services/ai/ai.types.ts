@@ -11,6 +11,20 @@
 
 export type { ProfileInput, JobAnalysis } from "../matching/matching.types";
 
+export type {
+  ParsedResume,
+  ParsedResumePersonalInfo,
+  ParsedResumeWorkExperience,
+  ParsedResumeEducation,
+  ParsedResumeSkills,
+  ParsedResumeProject,
+  ParsedResumeLanguage,
+  ParsedResumeCertification,
+  ParsedResumeAward,
+  ParsedResumeMetadata,
+  ParsedResumeLanguageDetected,
+} from "./parsed-resume.types";
+
 /**
  * Result of AI profile analysis.
  * Produced by `analyzeProfile`; persisted by the Backend on the user document.
