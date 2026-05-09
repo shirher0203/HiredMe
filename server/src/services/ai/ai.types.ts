@@ -99,3 +99,19 @@ export interface SemanticMatchAiResponse {
   aiSemanticScore: number;
   explanation: string;
 }
+
+/**
+ * Resume-aware extension of `SemanticMatchAiResponse`.
+ * Produced when `calculateMatch` is called with a `ParsedResume`.
+ * All extra fields are optional qualitative signals — they never
+ * feed into the numeric match score.
+ */
+export interface ResumeAwareSemanticMatchAiResponse
+  extends SemanticMatchAiResponse {
+  educationFit?: string;
+  experienceFit?: string;
+  projectFit?: string;
+  languageFit?: string;
+  resumeInsights?: string[];
+  matchingEvidence?: string[];
+}

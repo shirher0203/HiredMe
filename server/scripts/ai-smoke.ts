@@ -159,10 +159,24 @@ async function main(): Promise<void> {
   const resumeStep = await run("parseResume", () => parseResume(RESUME_TEXT));
   if (resumeStep.ok) passed++;
 
-  console.log("");
-  console.log(`${passed}/6 passed`);
+  const resumeAwareMatchStep = await run(
+    "calculateMatch(resume-aware)",
+    async () => {
+      if (!jobAnalysis) {
+        throw new Error("prior step did not produce a JobAnalysis");
+      }
+      if (!resumeStep.value) {
+        throw new Error("prior step did not produce a ParsedResume");
+      }
+      return calculateMatch(PROFILE, jobAnalysis, resumeStep.value);
+    }
+  );
+  if (resumeAwareMatchStep.ok) passed++;
 
-  process.exit(passed === 6 ? 0 : 1);
+  console.log("");
+  console.log(`${passed}/7 passed`);
+
+  process.exit(passed === 7 ? 0 : 1);
 }
 
 main();

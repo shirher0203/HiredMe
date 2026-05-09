@@ -10,6 +10,7 @@ import type {
   AnswerEvaluation,
   InterviewQuestion,
   SemanticMatchAiResponse,
+  ResumeAwareSemanticMatchAiResponse,
 } from "./ai.types";
 import type { JobAnalysis } from "../matching/matching.types";
 import type { ParsedResume } from "./parsed-resume.types";
@@ -39,6 +40,27 @@ export const mockSemanticMatch: SemanticMatchAiResponse = {
   aiSemanticScore: 72,
   explanation:
     "Strong semantic fit on React, Node, and TypeScript; MongoDB experience is implied but not demonstrated.",
+};
+
+export const mockResumeAwareSemanticMatch: ResumeAwareSemanticMatchAiResponse = {
+  aiSemanticScore: 74,
+  explanation:
+    "Solid overlap on the core stack; project work demonstrates the required technologies end-to-end.",
+  educationFit:
+    "BSc in Computer Science from Tel Aviv University aligns with the junior requirement.",
+  experienceFit:
+    "One year of hands-on full-stack work matches the 0-2 years target window.",
+  projectFit:
+    "The HiredMe project exercises React, Node, MongoDB and TypeScript together — direct evidence for every required skill.",
+  languageFit: "English fluency covers the team's working language.",
+  resumeInsights: [
+    "Project portfolio compensates for the short formal work history.",
+    "No explicit Docker / AWS exposure despite them being advantage skills.",
+  ],
+  matchingEvidence: [
+    "Acme Labs internal dashboard built with React + TypeScript.",
+    "HiredMe project uses React, Node, MongoDB and TypeScript end-to-end.",
+  ],
 };
 
 export const mockInterviewQuestions: InterviewQuestion[] = [

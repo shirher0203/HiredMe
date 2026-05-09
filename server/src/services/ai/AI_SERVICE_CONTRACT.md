@@ -1,4 +1,4 @@
-# AI Service Contract (Role 4 → Role 3)
+# AI Service Contract
 
 This document is the integration contract between Role 4 (AI & Logic) and
 Role 3 (Backend). Role 4 exports pure service functions that take plain
@@ -127,25 +127,45 @@ analyzeJob(jobDescription: string): Promise<JobAnalysis>
 ### 2.3 `calculateMatch`
 
 ```ts
-calculateMatch(profile: ProfileInput, jobAnalysis: JobAnalysis): Promise<MatchAnalysis>
+calculateMatch(
+  profile: ProfileInput,
+  jobAnalysis: JobAnalysis,
+  resume?: ParsedResume
+): Promise<MatchAnalysis>
 ```
 
 **Input**
 
 - `profile: ProfileInput` — see 2.1.
 - `jobAnalysis: JobAnalysis` — normally the output of `analyzeJob`.
+- `resume?: ParsedResume` — optional. When provided, `calculateMatch`
+  switches to the resume-aware path: skills are enriched from the
+  resume, the AI receives richer context, and the returned
+  `MatchAnalysis` gets the qualitative `...Fit` / `resumeInsights` /
+  `matchingEvidence` fields. When omitted, behavior is identical to
+  V1.
 
 **Output — `MatchAnalysis`**
 
-| Field              | Type        | Meaning                                                                                         |
-| ------------------ | ----------- | ----------------------------------------------------------------------------------------------- |
-| `algorithmicScore` | `number`    | 0-100. Deterministic skill-overlap score: `round(matchedRequired / requiredSkills * 100)`.      |
-| `aiSemanticScore`  | `number`    | 0-100. AI's semantic-similarity sub-score, clamped and rounded.                                 |
-| `finalScore`       | `number`    | 0-100. See formula below.                                                                       |
-| `matchedRequired`  | `string[]`  | Required skills the profile has, in canonical (normalized) form.                                |
-| `missingRequired`  | `string[]`  | Required skills the profile is missing, in canonical form.                                      |
-| `matchedAdvantage` | `string[]`  | Advantage skills the profile has, in canonical form.                                            |
-| `explanation`      | `string`    | Short text from the AI explaining the semantic score.                                           |
+| Field               | Type        | Meaning                                                                                         |
+| ------------------- | ----------- | ----------------------------------------------------------------------------------------------- |
+| `algorithmicScore`  | `number`    | 0-100. Deterministic skill-overlap score: `round(matchedRequired / requiredSkills * 100)`.      |
+| `aiSemanticScore`   | `number`    | 0-100. AI's semantic-similarity sub-score, clamped and rounded.                                 |
+| `finalScore`        | `number`    | 0-100. See formula below.                                                                       |
+| `matchedRequired`   | `string[]`  | Required skills the profile has, in canonical (normalized) form.                                |
+| `missingRequired`   | `string[]`  | Required skills the profile is missing, in canonical form.                                      |
+| `matchedAdvantage`  | `string[]`  | Advantage skills the profile has, in canonical form.                                            |
+| `explanation`       | `string`    | Short text from the AI explaining the semantic score.                                           |
+| `educationFit?`     | `string`    | Resume-aware only. Short sentence on how the candidate's education fits the role.               |
+| `experienceFit?`    | `string`    | Resume-aware only. Short sentence on how the candidate's experience fits the role.              |
+| `projectFit?`       | `string`    | Resume-aware only. Short sentence on how the candidate's projects cover the required stack.     |
+| `languageFit?`      | `string`    | Resume-aware only. Short sentence on spoken/written language fit.                               |
+| `resumeInsights?`   | `string[]`  | Resume-aware only. 0-5 notable signals (strengths or gaps).                                     |
+| `matchingEvidence?` | `string[]`  | Resume-aware only. 0-5 concrete resume items that justify the score.                            |
+
+The six `...?` fields are **only present** when `calculateMatch` is
+called with a `ParsedResume`. Callers that never pass a resume get the
+exact V1 shape — no `undefined` keys added.
 
 **Final score formula (authoritative)**
 
@@ -158,11 +178,98 @@ finalScore = clamp(finalScore, 0, 100)
 - 30% is the AI's semantic sub-score.
 - The AI never produces `finalScore` directly — it only contributes
   `aiSemanticScore`. The combination happens in `matching.service.ts`.
+- The resume-aware path does **not** change the weighting. The extra
+  `...Fit` fields are qualitative context for the UI and the
+  lecturer's explainability concerns; they never feed back into the
+  numeric score. Future iterations may revisit the 70/30 split.
+
+**Resume-aware enrichment (when `resume` is provided)**
+
+- `profile.skills` is merged with a deterministic adapter output:
+  - `resume.skills.technical_skills`
+  - `resume.skills.tools_and_software`
+  - every `resume.projects[].technologies_used`
+- All merged skills pass through `normalizeSkills` for aliasing and
+  dedupe. Profile-provided skills come first; resume-only skills are
+  appended.
+- The merged list is what both `calculateSkillOverlap` and the AI
+  prompt see. This is why candidates with strong project portfolios
+  get a higher `algorithmicScore` when their projects advertise the
+  job's required technologies.
+- `experienceYears` is read from
+  `resume.parsed_metadata.years_of_experience_estimate` (floored to
+  `>= 0`) and sent to the AI as context. There is no deterministic
+  experience math — education, work history, and languages are
+  evaluated qualitatively by the AI and surface as the optional
+  `...Fit` / `resumeInsights` / `matchingEvidence` fields.
 
 **Defensive defaults.** If `profile.skills`, `jobAnalysis.requiredSkills`,
 or `jobAnalysis.advantageSkills` are missing at runtime, they are treated
 as `[]` so `calculateMatch` never throws on slightly malformed inputs
-from the database.
+from the database. Resume sections that are empty arrays or `null`
+fields also never cause a throw — they just do not contribute to the
+enrichment.
+
+**Example — resume-aware input → output**
+
+```json
+// Input (abridged)
+{
+  "profile": { "skills": ["React.js", "typescript"], "experienceYears": 1, "projects": [] },
+  "jobAnalysis": {
+    "roleTitle": "Junior Full-Stack Developer",
+    "requiredSkills": ["react", "node", "mongodb", "typescript"],
+    "advantageSkills": ["docker", "aws"],
+    "seniorityLevel": "junior",
+    "summary": "Junior full-stack role."
+  },
+  "resume": {
+    "skills": {
+      "technical_skills": ["React.js", "Node", "typescript", "MongoDB"],
+      "tools_and_software": ["Docker", "Git"],
+      "soft_skills": ["communication"]
+    },
+    "projects": [
+      {
+        "project_name": "HiredMe",
+        "technologies_used": ["reactjs", "node.js", "mongodb", "typescript"],
+        "description": null, "link": null
+      }
+    ],
+    "parsed_metadata": { "language_detected": "en", "years_of_experience_estimate": 1 }
+  }
+}
+```
+
+```json
+// Output
+{
+  "finalScore": 92,
+  "algorithmicScore": 100,
+  "aiSemanticScore": 74,
+  "matchedRequired": ["react", "node", "mongodb", "typescript"],
+  "missingRequired": [],
+  "matchedAdvantage": ["docker"],
+  "explanation": "Solid overlap on the core stack; project work demonstrates the required technologies end-to-end.",
+  "educationFit": "BSc in Computer Science from Tel Aviv University aligns with the junior requirement.",
+  "experienceFit": "One year of hands-on full-stack work matches the 0-2 years target window.",
+  "projectFit": "The HiredMe project exercises React, Node, MongoDB and TypeScript together — direct evidence for every required skill.",
+  "languageFit": "English fluency covers the team's working language.",
+  "resumeInsights": [
+    "Project portfolio compensates for the short formal work history.",
+    "No explicit Docker / AWS exposure despite them being advantage skills."
+  ],
+  "matchingEvidence": [
+    "Acme Labs internal dashboard built with React + TypeScript.",
+    "HiredMe project uses React, Node, MongoDB and TypeScript end-to-end."
+  ]
+}
+```
+
+Note how `matchedRequired` is a perfect 4/4 even though the
+`ProfileInput.skills` only listed React and TypeScript: the resume's
+technical skills + project technologies filled in Node and MongoDB
+before the overlap was computed.
 
 ---
 

@@ -24,6 +24,7 @@ import type {
   GenerateQuestionsInput,
   EvaluateAnswerInput,
   SemanticMatchAiResponse,
+  ResumeAwareSemanticMatchAiResponse,
 } from "./ai.types";
 import type {
   ParsedResume,
@@ -46,15 +47,22 @@ import {
   buildAnalyzeProfilePrompt,
   buildParseResumePrompt,
   buildSemanticMatchPrompt,
+  buildResumeAwareSemanticMatchPrompt,
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
 import { normalizeSkills } from "../matching/skills-normalizer";
 import {
+  enrichFromResume,
+  mergeProfileSkillsWithResume,
+} from "../matching/resume-adapter";
+import type { MatchAnalysisExtras } from "../matching/matching.types";
+import {
   mockProfileAnalysis,
   mockJobAnalysis,
   mockSemanticMatch,
+  mockResumeAwareSemanticMatch,
   mockInterviewQuestions,
   mockAnswerEvaluation,
   mockParsedResume,
@@ -599,6 +607,72 @@ function validateSemanticMatch(raw: string): SemanticMatchAiResponse {
   };
 }
 
+function coerceOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function coerceOptionalShortStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (trimmed !== "") out.push(trimmed);
+  }
+  return out.length === 0 ? undefined : out;
+}
+
+function validateResumeAwareSemanticMatch(
+  raw: string
+): ResumeAwareSemanticMatchAiResponse {
+  const fn = "calculateMatch";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  const rawScore = toNumberScore(
+    parsed.aiSemanticScore,
+    "aiSemanticScore",
+    fn
+  );
+  const result: ResumeAwareSemanticMatchAiResponse = {
+    aiSemanticScore: clampScore(rawScore),
+    explanation: requireString(parsed.explanation, "explanation", fn),
+  };
+  const educationFit = coerceOptionalString(parsed.educationFit);
+  if (educationFit !== undefined) result.educationFit = educationFit;
+  const experienceFit = coerceOptionalString(parsed.experienceFit);
+  if (experienceFit !== undefined) result.experienceFit = experienceFit;
+  const projectFit = coerceOptionalString(parsed.projectFit);
+  if (projectFit !== undefined) result.projectFit = projectFit;
+  const languageFit = coerceOptionalString(parsed.languageFit);
+  if (languageFit !== undefined) result.languageFit = languageFit;
+  const resumeInsights = coerceOptionalShortStringArray(parsed.resumeInsights);
+  if (resumeInsights !== undefined) result.resumeInsights = resumeInsights;
+  const matchingEvidence = coerceOptionalShortStringArray(
+    parsed.matchingEvidence
+  );
+  if (matchingEvidence !== undefined) result.matchingEvidence = matchingEvidence;
+  return result;
+}
+
+function extractMatchExtras(
+  semantic: ResumeAwareSemanticMatchAiResponse
+): MatchAnalysisExtras {
+  const extras: MatchAnalysisExtras = {};
+  if (semantic.educationFit !== undefined)
+    extras.educationFit = semantic.educationFit;
+  if (semantic.experienceFit !== undefined)
+    extras.experienceFit = semantic.experienceFit;
+  if (semantic.projectFit !== undefined) extras.projectFit = semantic.projectFit;
+  if (semantic.languageFit !== undefined)
+    extras.languageFit = semantic.languageFit;
+  if (semantic.resumeInsights !== undefined)
+    extras.resumeInsights = semantic.resumeInsights;
+  if (semantic.matchingEvidence !== undefined)
+    extras.matchingEvidence = semantic.matchingEvidence;
+  return extras;
+}
+
 function validateQuestions(raw: string): { questions: InterviewQuestion[] } {
   const fn = "generateInterviewQuestions";
   const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
@@ -685,32 +759,76 @@ export async function analyzeJob(
 
 export async function calculateMatch(
   profile: ProfileInput,
-  jobAnalysis: JobAnalysis
+  jobAnalysis: JobAnalysis,
+  resume?: ParsedResume
 ): Promise<MatchAnalysis> {
-  const profileSkills = profile?.skills ?? [];
+  const rawProfileSkills = profile?.skills ?? [];
   const requiredSkills = jobAnalysis?.requiredSkills ?? [];
   const advantageSkills = jobAnalysis?.advantageSkills ?? [];
+
+  if (!resume) {
+    const profileSkills = rawProfileSkills;
+
+    if (isMockMode()) {
+      return buildDeterministicMatch(
+        profileSkills,
+        requiredSkills,
+        advantageSkills,
+        mockSemanticMatch.aiSemanticScore,
+        mockSemanticMatch.explanation
+      );
+    }
+
+    const prompt = buildSemanticMatchPrompt({
+      profileSkills,
+      requiredSkills,
+      advantageSkills,
+    });
+
+    const semantic = await withOneRetry<SemanticMatchAiResponse>(
+      "calculateMatch",
+      prompt,
+      validateSemanticMatch
+    );
+
+    return buildDeterministicMatch(
+      profileSkills,
+      requiredSkills,
+      advantageSkills,
+      semantic.aiSemanticScore,
+      semantic.explanation
+    );
+  }
+
+  const enrichment = enrichFromResume(resume);
+  const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
 
   if (isMockMode()) {
     return buildDeterministicMatch(
       profileSkills,
       requiredSkills,
       advantageSkills,
-      mockSemanticMatch.aiSemanticScore,
-      mockSemanticMatch.explanation
+      mockResumeAwareSemanticMatch.aiSemanticScore,
+      mockResumeAwareSemanticMatch.explanation,
+      extractMatchExtras(mockResumeAwareSemanticMatch)
     );
   }
 
-  const prompt = buildSemanticMatchPrompt({
+  const prompt = buildResumeAwareSemanticMatchPrompt({
     profileSkills,
     requiredSkills,
     advantageSkills,
+    workExperienceSummary: enrichment.workExperienceSummary,
+    educationSummary: enrichment.educationSummary,
+    topProjectsSummary: enrichment.topProjectsSummary,
+    languagesSummary: enrichment.languagesSummary,
+    experienceYears: enrichment.experienceYears,
   });
 
-  const semantic = await withOneRetry<SemanticMatchAiResponse>(
+  const semantic = await withOneRetry<ResumeAwareSemanticMatchAiResponse>(
     "calculateMatch",
     prompt,
-    validateSemanticMatch
+    validateResumeAwareSemanticMatch
   );
 
   return buildDeterministicMatch(
@@ -718,7 +836,8 @@ export async function calculateMatch(
     requiredSkills,
     advantageSkills,
     semantic.aiSemanticScore,
-    semantic.explanation
+    semantic.explanation,
+    extractMatchExtras(semantic)
   );
 }
 

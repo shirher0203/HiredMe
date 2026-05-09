@@ -3,7 +3,7 @@
 // stays auditable.
 
 import { normalizeSkills } from "./skills-normalizer";
-import type { MatchAnalysis } from "./matching.types";
+import type { MatchAnalysis, MatchAnalysisExtras } from "./matching.types";
 
 function clamp0to100(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -77,13 +77,18 @@ export function calculateFinalMatchScore(
 /**
  * One-shot: overlap + advantage matches + final score, packaged as a
  * MatchAnalysis. The AI's `aiSemanticScore` is an input, never the verdict.
+ *
+ * Optional `extras` thread resume-aware qualitative signals onto the
+ * returned object. Omitted extras are not added to the output — callers
+ * that never pass `extras` get the exact V1 shape.
  */
 export function buildDeterministicMatch(
   profileSkills: string[],
   requiredSkills: string[],
   advantageSkills: string[],
   aiSemanticScore: number,
-  aiExplanation: string
+  aiExplanation: string,
+  extras?: MatchAnalysisExtras
 ): MatchAnalysis {
   const { matched, missing, algorithmicScore } = calculateSkillOverlap(
     profileSkills,
@@ -102,7 +107,7 @@ export function buildDeterministicMatch(
       ? "No AI explanation provided."
       : trimmedExplanation;
 
-  return {
+  const result: MatchAnalysis = {
     finalScore,
     algorithmicScore,
     aiSemanticScore: clampedAiSemanticScore,
@@ -111,4 +116,15 @@ export function buildDeterministicMatch(
     matchedAdvantage,
     explanation,
   };
+
+  if (extras) {
+    if (extras.educationFit !== undefined) result.educationFit = extras.educationFit;
+    if (extras.experienceFit !== undefined) result.experienceFit = extras.experienceFit;
+    if (extras.projectFit !== undefined) result.projectFit = extras.projectFit;
+    if (extras.languageFit !== undefined) result.languageFit = extras.languageFit;
+    if (extras.resumeInsights !== undefined) result.resumeInsights = extras.resumeInsights;
+    if (extras.matchingEvidence !== undefined) result.matchingEvidence = extras.matchingEvidence;
+  }
+
+  return result;
 }
