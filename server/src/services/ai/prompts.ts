@@ -100,6 +100,72 @@ export function buildSemanticMatchPrompt(
   ].join("\n");
 }
 
+export interface ResumeAwareSemanticMatchPromptInput {
+  readonly profileSkills: string[];
+  readonly requiredSkills: string[];
+  readonly advantageSkills: string[];
+  readonly workExperienceSummary: string;
+  readonly educationSummary: string;
+  readonly topProjectsSummary: string;
+  readonly languagesSummary: string;
+  readonly experienceYears: number;
+}
+
+export function buildResumeAwareSemanticMatchPrompt(
+  input: ResumeAwareSemanticMatchPromptInput
+): string {
+  const schema = `{
+  "aiSemanticScore": number (0-100),
+  "explanation": string,
+  "educationFit": string | null,
+  "experienceFit": string | null,
+  "projectFit": string | null,
+  "languageFit": string | null,
+  "resumeInsights": string[],
+  "matchingEvidence": string[]
+}`;
+
+  const resumeLines = [
+    `Candidate experience years: ${input.experienceYears}`,
+    input.workExperienceSummary === ""
+      ? "Work experience: (none reported)"
+      : `Work experience: ${input.workExperienceSummary}`,
+    input.educationSummary === ""
+      ? "Education: (none reported)"
+      : `Education: ${input.educationSummary}`,
+    input.topProjectsSummary === ""
+      ? "Top projects: (none reported)"
+      : `Top projects: ${input.topProjectsSummary}`,
+    input.languagesSummary === ""
+      ? "Languages: (none reported)"
+      : `Languages: ${input.languagesSummary}`,
+  ];
+
+  return [
+    SYSTEM_HEADER,
+    "",
+    "Task: estimate how well the candidate's resume semantically covers the job.",
+    "Consider synonyms and closely related technologies (e.g. \"React\" ≈ \"modern JS frameworks\").",
+    "Also produce short qualitative fit notes for education, experience, projects,",
+    "and language. Do NOT compute a final match score — only the semantic sub-score.",
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    "aiSemanticScore must be a number between 0 and 100 (inclusive).",
+    "Do not return a percentage string.",
+    "educationFit / experienceFit / projectFit / languageFit are short sentences (10-200 chars) or null if there is not enough information.",
+    "resumeInsights: 0-5 short strings highlighting notable signals (strengths or gaps).",
+    "matchingEvidence: 0-5 short strings citing concrete resume items that justify the score.",
+    "",
+    formatStringList("Candidate skills", input.profileSkills),
+    formatStringList("Job required skills", input.requiredSkills),
+    formatStringList("Job advantage skills", input.advantageSkills),
+    "",
+    ...resumeLines,
+  ].join("\n");
+}
+
 export interface GenerateQuestionsPromptInput {
   readonly interviewType: "hr" | "technical";
   readonly profileSkills: string[];

@@ -46,6 +46,11 @@ export interface JobAnalysis {
  * Produced by `buildDeterministicMatch` / `calculateMatch`.
  * `finalScore` and `algorithmicScore` are computed in deterministic code;
  * `aiSemanticScore` and `explanation` come from the AI semantic-match call.
+ *
+ * The `...Fit` / `resumeInsights` / `matchingEvidence` fields are populated
+ * only when `calculateMatch` is called with a `ParsedResume`. They are
+ * qualitative context from the AI layer and never feed back into the
+ * numeric score.
  */
 export interface MatchAnalysis {
   finalScore: number;
@@ -55,4 +60,25 @@ export interface MatchAnalysis {
   missingRequired: string[];
   matchedAdvantage: string[];
   explanation: string;
+  educationFit?: string;
+  experienceFit?: string;
+  projectFit?: string;
+  languageFit?: string;
+  resumeInsights?: string[];
+  matchingEvidence?: string[];
+}
+
+/**
+ * Optional enrichment fields threaded through `buildDeterministicMatch`
+ * when the caller wants the resume-aware signals on the returned
+ * `MatchAnalysis`. All fields are optional; any that are `undefined`
+ * are simply not included on the output.
+ */
+export interface MatchAnalysisExtras {
+  educationFit?: string;
+  experienceFit?: string;
+  projectFit?: string;
+  languageFit?: string;
+  resumeInsights?: string[];
+  matchingEvidence?: string[];
 }
