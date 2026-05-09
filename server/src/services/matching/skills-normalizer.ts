@@ -6,20 +6,7 @@
  * skills coming from different sources (profile forms, job descriptions, AI).
  */
 
-const ALIASES: Readonly<Record<string, string>> = {
-  "react.js": "react",
-  reactjs: "react",
-  "node.js": "node",
-  nodejs: "node",
-  js: "javascript",
-  ts: "typescript",
-  mongo: "mongodb",
-  "mongo db": "mongodb",
-  postgres: "postgresql",
-  "express.js": "express",
-  expressjs: "express",
-  "tailwind css": "tailwind",
-};
+import { SKILL_ALIASES } from "./skill-aliases.data";
 
 /**
  * Normalize a single skill string to its canonical form.
@@ -45,7 +32,7 @@ export function normalizeSkill(skill: string): string {
   if (s === "") {
     return "";
   }
-  const alias = ALIASES[s];
+  const alias = SKILL_ALIASES[s];
   return alias !== undefined ? alias : s;
 }
 
