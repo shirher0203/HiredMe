@@ -185,6 +185,111 @@ export function buildEvaluateAnswerPrompt(
   ].join("\n");
 }
 
+const RESUME_MAX_CHARS = 20000;
+
+export function buildParseResumePrompt(resumeText: string): string {
+  const schema = `{
+  "personal_info": {
+    "full_name": string | null,
+    "email": string | null,
+    "phone": string | null,
+    "location": string | null,
+    "linkedin_url": string | null,
+    "portfolio_or_github_url": string | null
+  },
+  "professional_summary": string | null,
+  "work_experience": [
+    {
+      "company_name": string | null,
+      "job_title": string | null,
+      "start_date": string | null,
+      "end_date": string | null,
+      "location": string | null,
+      "responsibilities": string[],
+      "achievements": string[]
+    }
+  ],
+  "education": [
+    {
+      "institution_name": string | null,
+      "degree_type": string | null,
+      "field_of_study": string | null,
+      "start_date": string | null,
+      "end_date": string | null
+    }
+  ],
+  "skills": {
+    "technical_skills": string[],
+    "soft_skills": string[],
+    "tools_and_software": string[]
+  },
+  "projects": [
+    {
+      "project_name": string | null,
+      "description": string | null,
+      "technologies_used": string[],
+      "link": string | null
+    }
+  ],
+  "languages": [
+    {
+      "language": string | null,
+      "proficiency_level": string | null
+    }
+  ],
+  "certifications": [
+    {
+      "name": string | null,
+      "issuer": string | null,
+      "date": string | null
+    }
+  ],
+  "awards": [
+    {
+      "title": string | null,
+      "issuer": string | null,
+      "date": string | null
+    }
+  ],
+  "parsed_metadata": {
+    "language_detected": "en" | "he" | "mixed" | "other" | null,
+    "years_of_experience_estimate": number
+  }
+}`;
+
+  const rules = [
+    "Every top-level key listed above MUST be present.",
+    "If a string field is unknown, return null — do NOT omit the key.",
+    "If a list field has no entries, return [] — do NOT omit the key.",
+    "Do not invent facts. If something is not in the resume, it is null or [].",
+    "Preserve chronological order when it is clear from the source text.",
+    'Dates should be "YYYY-MM" when month is known, "YYYY" when only year is known, or "present" for ongoing roles. Unknown dates are null.',
+    "Preserve the original language for names, companies and locations. Translate long free-text summaries to English.",
+    "Do NOT add any fields beyond those listed in the schema.",
+    "parsed_metadata.years_of_experience_estimate must be a non-negative number.",
+    'parsed_metadata.language_detected must be one of "en", "he", "mixed", "other", or null.',
+  ].join("\n");
+
+  const truncated = resumeText.length > RESUME_MAX_CHARS;
+  const body = truncated
+    ? `[truncated to ${RESUME_MAX_CHARS} chars]\n${resumeText.slice(0, RESUME_MAX_CHARS)}`
+    : resumeText;
+
+  return [
+    SYSTEM_HEADER,
+    "",
+    "Task: extract a structured JSON representation of the candidate's resume below.",
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    rules,
+    "",
+    "Resume text:",
+    body,
+  ].join("\n");
+}
+
 export function buildAnalyzeProfilePrompt(profile: ProfileInput): string {
   const schema = `{
   "seniorityEstimate": "junior" | "mid" | "senior",
