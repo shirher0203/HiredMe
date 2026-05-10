@@ -6,6 +6,7 @@ import { userRouter } from "./routes/user.routes";
 import { jobsRouter } from "./routes/jobs.routes";
 import { practiceRouter } from "./routes/practice.routes";
 import { matchRouter } from "./routes/match.routes";
+import { cvRouter } from "./routes/cv.routes";
 import { authMiddleware } from "./middlewares/auth.middleware";
 import { errorMiddleware } from "./middlewares/error.middleware";
 import { createOpenApiSpec } from "./docs/openapi";
@@ -34,6 +35,7 @@ export function createApp() {
   app.use("/api/jobs", authMiddleware, jobsRouter);
   app.use("/api/practice", authMiddleware, practiceRouter);
   app.use("/api/match", authMiddleware, matchRouter);
+  app.use("/api/v1/cv", cvRouter);
 
   app.use(errorMiddleware);
 

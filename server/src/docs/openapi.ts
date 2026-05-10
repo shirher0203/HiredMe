@@ -3,6 +3,7 @@ import { userPaths } from "./routes/user.routes.doc";
 import { jobsPaths } from "./routes/jobs.routes.doc";
 import { practicePaths } from "./routes/practice.routes.doc";
 import { matchPaths } from "./routes/match.routes.doc";
+import { cvPaths } from "./routes/cv.routes.doc";
 
 export function createOpenApiSpec() {
   return {
@@ -24,6 +25,7 @@ export function createOpenApiSpec() {
       { name: "Jobs" },
       { name: "Practice" },
       { name: "Match" },
+      { name: "CV" },
     ],
     components: {
       securitySchemes: {
@@ -36,13 +38,32 @@ export function createOpenApiSpec() {
       schemas: {
         ErrorResponse: {
           type: "object",
+          required: ["status", "error"],
           properties: {
+            status: { type: "string", enum: ["error"] },
             error: {
               type: "object",
+              required: ["code", "message"],
               properties: {
                 code: { type: "string" },
                 message: { type: "string" },
                 details: {},
+              },
+            },
+          },
+        },
+        ExtractCvTextResponse: {
+          type: "object",
+          required: ["status", "data"],
+          properties: {
+            status: { type: "string", enum: ["success"] },
+            data: {
+              type: "object",
+              required: ["filename", "pageCount", "extractedText"],
+              properties: {
+                filename: { type: "string" },
+                pageCount: { type: "number" },
+                extractedText: { type: "string" },
               },
             },
           },
@@ -64,7 +85,7 @@ export function createOpenApiSpec() {
       ...jobsPaths,
       ...practicePaths,
       ...matchPaths,
+      ...cvPaths,
     },
   };
 }
-
