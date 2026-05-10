@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  patchMatchFlowJob,
   postMatchFlowParseResume,
   postMatchFlowResume,
 } from "../controllers/match-flow.controller";
@@ -9,3 +10,4 @@ export const matchFlowRouter = Router();
 
 matchFlowRouter.post("/resume", upload.single("file"), postMatchFlowResume);
 matchFlowRouter.post("/:id/parse-resume", postMatchFlowParseResume);
+matchFlowRouter.patch("/:id/job", patchMatchFlowJob);

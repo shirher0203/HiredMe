@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
+import type { JobAnalysis } from "./matching/matching.types";
 import type { ParsedResume } from "./ai/parsed-resume.types";
-import { parseResume } from "./ai/ai.service";
+import { analyzeJob, parseResume } from "./ai/ai.service";
 import { MatchFlowModel } from "../models/match-flow.model";
 import { sha256Hex } from "../utils/hash";
 import { HttpError } from "../utils/http-error";
@@ -49,6 +50,58 @@ export async function parseResumeForMatchFlow(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.startsWith("parseResume:")) {
+      throw new HttpError(422, "AI_VALIDATION_FAILED", msg);
+    }
+    throw err;
+  }
+}
+
+export async function analyzeJobForMatchFlow(
+  matchFlowId: Types.ObjectId,
+  userId: string,
+  jobDescription: string
+): Promise<{ jobAnalysis: JobAnalysis; cached: boolean }> {
+  if (typeof jobDescription !== "string") {
+    throw new HttpError(400, "VALIDATION_ERROR", "jobDescription must be a string");
+  }
+
+  const normalized = jobDescription.trim();
+  if (normalized === "") {
+    throw new HttpError(400, "VALIDATION_ERROR", "jobDescription must be non-empty");
+  }
+
+  const jobDescriptionHash = sha256Hex(normalized);
+
+  const doc = await MatchFlowModel.findOne({
+    _id: matchFlowId,
+    userId: new Types.ObjectId(userId),
+  });
+
+  if (!doc) {
+    throw new HttpError(404, "NOT_FOUND", "Match flow not found");
+  }
+
+  const existingAnalysis = doc.jobAnalysis as JobAnalysis | undefined;
+  if (
+    doc.jobDescriptionHash === jobDescriptionHash &&
+    existingAnalysis !== undefined &&
+    existingAnalysis !== null
+  ) {
+    return { jobAnalysis: existingAnalysis, cached: true };
+  }
+
+  try {
+    const jobAnalysis = await analyzeJob(normalized);
+    doc.jobRawDescription = normalized;
+    doc.jobDescriptionHash = jobDescriptionHash;
+    doc.jobAnalysis = jobAnalysis;
+    doc.status = "job_analyzed";
+    doc.lastError = undefined;
+    await doc.save();
+    return { jobAnalysis, cached: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("analyzeJob:")) {
       throw new HttpError(422, "AI_VALIDATION_FAILED", msg);
     }
     throw err;
