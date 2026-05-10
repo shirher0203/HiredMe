@@ -3,15 +3,40 @@ import { asObjectId, requireIdParam, requireUser } from "./controller-utils";
 import { createMatchFlowFromPdfUpload } from "../services/match-flow-resume.service";
 import {
   analyzeJobForMatchFlow,
+  calculateMatchForMatchFlow,
   parseResumeForMatchFlow,
 } from "../services/match-flow.service";
 import type {
   MatchFlowJobAnalysisData,
+  MatchFlowMatchData,
   MatchFlowParseResumeData,
   MatchFlowResumeUploadData,
   SuccessResponse,
 } from "../types/api.types";
 import { HttpError } from "../utils/http-error";
+
+export async function postMatchFlowMatch(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { userId } = requireUser(req);
+    const idParam = requireIdParam(req.params.id);
+    const flowId = asObjectId(idParam);
+
+    const result = await calculateMatchForMatchFlow(flowId, userId);
+
+    const response: SuccessResponse<MatchFlowMatchData> = {
+      status: "success",
+      data: result,
+    };
+
+    res.status(200).json(response);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function patchMatchFlowJob(
   req: Request,

@@ -1,5 +1,5 @@
 import type { ParsedResume } from "../services/ai/parsed-resume.types";
-import type { JobAnalysis } from "../services/matching/matching.types";
+import type { JobAnalysis, MatchAnalysis } from "../services/matching/matching.types";
 
 export interface SuccessResponse<TData> {
   status: "success";
@@ -36,5 +36,10 @@ export interface MatchFlowParseResumeData {
 
 export interface MatchFlowJobAnalysisData {
   jobAnalysis: JobAnalysis;
+  cached: boolean;
+}
+
+export interface MatchFlowMatchData {
+  matchReport: MatchAnalysis;
   cached: boolean;
 }
