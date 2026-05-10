@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { asObjectId, requireIdParam, requireUser } from "./controller-utils";
+import { runFullMatchFlowPipeline } from "../services/match-flow-pipeline.service";
 import { createMatchFlowFromPdfUpload } from "../services/match-flow-resume.service";
 import {
   analyzeJobForMatchFlow,
@@ -7,6 +8,7 @@ import {
   parseResumeForMatchFlow,
 } from "../services/match-flow.service";
 import type {
+  MatchFlowFullPipelineData,
   MatchFlowJobAnalysisData,
   MatchFlowMatchData,
   MatchFlowParseResumeData,
@@ -14,6 +16,36 @@ import type {
   SuccessResponse,
 } from "../types/api.types";
 import { HttpError } from "../utils/http-error";
+
+export async function postMatchFlowFull(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { userId } = requireUser(req);
+
+    if (!req.file) {
+      throw new HttpError(400, "MISSING_FILE", "PDF file is required");
+    }
+
+    const result = await runFullMatchFlowPipeline({
+      userId,
+      buffer: req.file.buffer,
+      filename: req.file.originalname,
+      jobDescription: req.body?.jobDescription,
+    });
+
+    const response: SuccessResponse<MatchFlowFullPipelineData> = {
+      status: "success",
+      data: result,
+    };
+
+    res.status(200).json(response);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function postMatchFlowMatch(
   req: Request,

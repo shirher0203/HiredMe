@@ -43,3 +43,20 @@ export interface MatchFlowMatchData {
   matchReport: MatchAnalysis;
   cached: boolean;
 }
+
+export interface MatchFlowFullPipelineData {
+  matchFlowId: string;
+  filename: string;
+  pageCount: number;
+  resumeTextHash: string;
+  jobDescriptionHash: string;
+  parsedResume: ParsedResume;
+  jobAnalysis: JobAnalysis;
+  matchReport: MatchAnalysis;
+  pipelineCached: boolean;
+  usedCached: {
+    parseResume: boolean;
+    jobAnalysis: boolean;
+    match: boolean;
+  };
+}
