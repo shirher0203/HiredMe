@@ -48,6 +48,8 @@ const matchFlowSchema = new Schema(
     userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
     extractedResumeText: { type: String },
     resumeTextHash: { type: String },
+    /** Page count from `extractTextFromBuffer` after successful PDF parse. */
+    resumePdfPageCount: { type: Number },
     /** Full `ParsedResume` from `parseResume` — stored as Mixed for forward compatibility. */
     parsedResume: { type: Schema.Types.Mixed },
     jobRawDescription: { type: String },

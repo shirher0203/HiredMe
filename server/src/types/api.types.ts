@@ -17,3 +17,11 @@ export interface ExtractCvTextData {
   pageCount: number;
   extractedText: string;
 }
+
+export interface MatchFlowResumeUploadData {
+  matchFlowId: string;
+  resumeTextHash: string;
+  textLength: number;
+  pageCount: number;
+  filename: string;
+}
