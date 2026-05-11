@@ -1,21 +1,21 @@
 import { type FormEvent, useId, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   analyzeFitPreview,
   type AnalyzeFitPreviewResult,
 } from "../services/fitAnalysis";
 import type { JobAnalysis, MatchAnalysis } from "../types/matching";
+import type { ParsedResume } from "../types/parsedResume";
 
-const ACCEPT =
-  ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-const EXT_OK = /\.(pdf|docx?)$/i;
+const ACCEPT = ".pdf,application/pdf";
+const EXT_OK = /\.pdf$/i;
 
 function validateResumeFile(file: File | null): string | null {
   if (!file || file.size === 0) {
-    return "Upload a resume file (PDF or Word).";
+    return "Upload a resume file (PDF).";
   }
   if (!EXT_OK.test(file.name)) {
-    return "Use a PDF, .doc, or .docx file.";
+    return "Use a PDF file.";
   }
   return null;
 }
@@ -155,11 +155,101 @@ function MatchSection({ match }: { match: MatchAnalysis }) {
           variant="advantage"
         />
       </div>
-      <div className="mt-8 border-t border-indigo-100 pt-6">
-        <h3 className="text-sm font-semibold text-indigo-900">Explanation</h3>
-        <p className="mt-2 text-sm leading-relaxed text-slate-700">
-          {match.explanation}
-        </p>
+    </section>
+  );
+}
+
+function ResumeSection({ resume }: { resume: ParsedResume }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white/95 p-6 shadow-sm shadow-slate-300/10">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Resume analysis</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Parsed resume details and the candidate signals used for match scoring.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Experience estimate: <span className="font-semibold">{resume.parsed_metadata.years_of_experience_estimate ?? 0} years</span>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">Professional summary</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">
+              {resume.professional_summary || "No professional summary was detected."}
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Technical skills</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {resume.skills.technical_skills.length > 0 ? (
+                  resume.skills.technical_skills.map((skill) => (
+                    <span key={skill} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-800">
+                      {skill}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">None</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tools & software</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {resume.skills.tools_and_software.length > 0 ? (
+                  resume.skills.tools_and_software.map((tool) => (
+                    <span key={tool} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-800">
+                      {tool}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">None</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
+            <div className="mt-3 space-y-3 text-sm text-slate-700">
+              {resume.education.length > 0 ? (
+                resume.education.slice(0, 3).map((item, index) => (
+                  <div key={`${item.institution_name}-${index}`}>
+                    <p className="font-semibold text-slate-900">
+                      {item.degree_type || item.field_of_study || "Education"}
+                    </p>
+                    <p>{item.institution_name || "Unknown institution"}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No education details were detected.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Top projects</p>
+            <div className="mt-3 space-y-3 text-sm text-slate-700">
+              {resume.projects.length > 0 ? (
+                resume.projects.slice(0, 3).map((project, index) => (
+                  <div key={`${project.project_name}-${index}`}>
+                    <p className="font-semibold text-slate-900">{project.project_name || "Project"}</p>
+                    <p>{project.technologies_used.join(", ") || "No technologies listed."}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No project details were detected.</p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -170,12 +260,12 @@ export function FitPreviewPage() {
   const jobId = `${formId}-job`;
   const fileId = `${formId}-file`;
 
+  const navigate = useNavigate();
   const [jobDescription, setJobDescription] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<AnalyzeFitPreviewResult | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -195,13 +285,14 @@ export function FitPreviewPage() {
     }
 
     setLoading(true);
-    setResult(null);
     try {
       const data = await analyzeFitPreview({
         jobDescription: trimmed,
         resumeFile: resumeFile as File,
       });
-      setResult(data);
+      navigate("/match/result", { state: data });
+    } catch (err) {
+      setJobError(err instanceof Error ? err.message : "Failed to analyze resume.");
     } finally {
       setLoading(false);
     }
@@ -275,7 +366,7 @@ export function FitPreviewPage() {
                 Resume
               </label>
               <p className="mt-1 text-sm text-slate-500">
-                PDF or Word (.doc, .docx).
+                PDF file only.
               </p>
               <input
                 id={fileId}
@@ -300,21 +391,28 @@ export function FitPreviewPage() {
             </div>
           </div>
 
-          <div className="mt-8 flex justify-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="inline-flex min-w-[9rem] items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Analyzing…" : "Analyze fit"}
-            </button>
+          <div className="mt-8 flex flex-col gap-3">
+            {loading ? (
+              <div className="rounded-full bg-slate-200 p-1">
+                <div className="h-2 w-full rounded-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-sky-300 animate-pulse" />
+              </div>
+            ) : null}
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex min-w-[9rem] items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Analyzing…" : "Analyze fit"}
+              </button>
+            </div>
           </div>
         </form>
 
-        {result ? (
-          <div className="mt-10 space-y-8">
-            <MatchSection match={result.match} />
-            <JobCard job={result.job} />
+        {jobError ? (
+          <div className="mt-10 rounded-2xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
+            {jobError}
           </div>
         ) : null}
       </div>
