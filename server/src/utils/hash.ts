@@ -1,5 +1,10 @@
 import { createHash } from "crypto";
 
+/** SHA-256 of UTF-8 string, hex-encoded (same input contract as `parseResume` / `raw_text_hash`). */
+export function sha256Hex(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((v) => stableStringify(v)).join(",")}]`;
