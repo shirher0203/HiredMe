@@ -5,6 +5,7 @@ import { practicePaths } from "./routes/practice.routes.doc";
 import { matchPaths } from "./routes/match.routes.doc";
 import { cvPaths } from "./routes/cv.routes.doc";
 import { matchFlowPaths } from "./routes/match-flow.routes.doc";
+import { userProfilePaths } from "./routes/user-profile.routes.doc";
 
 export function createOpenApiSpec() {
   return {
@@ -27,6 +28,7 @@ export function createOpenApiSpec() {
       { name: "Practice" },
       { name: "Match" },
       { name: "CV" },
+      { name: "User profile" },
       { name: "Match flow" },
     ],
     components: {
@@ -66,6 +68,91 @@ export function createOpenApiSpec() {
                 filename: { type: "string" },
                 pageCount: { type: "number" },
                 extractedText: { type: "string" },
+              },
+            },
+          },
+        },
+        ParsedResumePersonalInfo: {
+          type: "object",
+          required: [
+            "full_name",
+            "email",
+            "phone",
+            "location",
+            "linkedin_url",
+            "portfolio_or_github_url",
+          ],
+          properties: {
+            full_name: { type: "string", nullable: true },
+            email: { type: "string", nullable: true },
+            phone: { type: "string", nullable: true },
+            location: { type: "string", nullable: true },
+            linkedin_url: { type: "string", nullable: true },
+            portfolio_or_github_url: { type: "string", nullable: true },
+          },
+        },
+        ParsedResume: {
+          type: "object",
+          additionalProperties: true,
+          required: [
+            "raw_text_hash",
+            "personal_info",
+            "professional_summary",
+            "work_experience",
+            "education",
+            "skills",
+            "projects",
+            "languages",
+            "certifications",
+            "awards",
+            "parsed_metadata",
+          ],
+          properties: {
+            raw_text_hash: { type: "string" },
+            personal_info: { $ref: "#/components/schemas/ParsedResumePersonalInfo" },
+            professional_summary: { type: "string", nullable: true },
+            work_experience: { type: "array", items: { type: "object" } },
+            education: { type: "array", items: { type: "object" } },
+            skills: { type: "object", additionalProperties: true },
+            projects: { type: "array", items: { type: "object" } },
+            languages: { type: "array", items: { type: "object" } },
+            certifications: { type: "array", items: { type: "object" } },
+            awards: { type: "array", items: { type: "object" } },
+            parsed_metadata: { type: "object", additionalProperties: true },
+          },
+        },
+        ParseCvResponse: {
+          type: "object",
+          required: ["status", "data"],
+          properties: {
+            status: { type: "string", enum: ["success"] },
+            data: {
+              type: "object",
+              required: ["parsedResume"],
+              properties: {
+                parsedResume: { $ref: "#/components/schemas/ParsedResume" },
+              },
+            },
+          },
+        },
+        UserProfileResponse: {
+          type: "object",
+          required: ["status", "data"],
+          properties: {
+            status: { type: "string", enum: ["success"] },
+            data: {
+              type: "object",
+              required: ["profile", "personalInfo", "rawCvFileUrl", "updatedAt"],
+              properties: {
+                profile: {
+                  oneOf: [
+                    { $ref: "#/components/schemas/ParsedResume" },
+                    { type: "null" },
+                  ],
+                },
+                personalInfo: { $ref: "#/components/schemas/ParsedResumePersonalInfo" },
+                rawCvFileUrl: { type: "string", nullable: true },
+                updatedAt: { type: "string", format: "date-time", nullable: true },
               },
             },
           },
@@ -199,6 +286,7 @@ export function createOpenApiSpec() {
       ...practicePaths,
       ...matchPaths,
       ...cvPaths,
+      ...userProfilePaths,
       ...matchFlowPaths,
     },
   };

@@ -4,6 +4,7 @@ const AUTH_STORAGE_KEY = "hiredme.auth";
 export interface AuthUser {
   id: string;
   email: string;
+  personalInfo?: RegistrationPersonalInfo;
 }
 
 export interface AuthSession {
@@ -11,9 +12,18 @@ export interface AuthSession {
   user: AuthUser;
 }
 
+export interface RegistrationPersonalInfo {
+  fullName?: string;
+  phone?: string;
+  location?: string;
+  linkedinUrl?: string;
+  portfolioOrGithubUrl?: string;
+}
+
 export interface AuthInput {
   email: string;
   password: string;
+  personalInfo?: RegistrationPersonalInfo;
 }
 
 interface ApiErrorBody {

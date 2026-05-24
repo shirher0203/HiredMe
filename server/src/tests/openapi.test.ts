@@ -51,6 +51,9 @@ describe("OpenAPI spec (contract drift)", () => {
     const spec = createOpenApiSpec();
     expect(spec.openapi).toBe("3.0.3");
     expect(spec.paths).toHaveProperty("/api/v1/cv/extract-text");
+    expect(spec.paths).toHaveProperty("/api/v1/cv/parse");
+    expect(spec.paths).toHaveProperty("/api/v1/cv/analyze-profile");
+    expect(spec.paths).toHaveProperty("/api/v1/users/profile");
     expect(spec.paths).toHaveProperty("/api/match/analyze");
   });
 });

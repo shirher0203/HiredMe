@@ -3,6 +3,7 @@ import request from "supertest";
 import * as aiService from "../services/ai/ai.service";
 import { createApp } from "../app";
 import { MatchFlowModel } from "../models/match-flow.model";
+import { UserModel } from "../models/user.model";
 import { signAuthToken } from "../utils/auth";
 import { sha256Hex } from "../utils/hash";
 import {
@@ -32,8 +33,13 @@ describe("POST /api/v1/match-flow/:id/parse-resume", () => {
 
   beforeEach(async () => {
     await clearAllCollections();
-    userId = new mongoose.Types.ObjectId().toString();
-    token = signAuthToken({ userId, email: "u@example.com" });
+    const user = await UserModel.create({
+      email: "u@example.com",
+      passwordHash: "test-hash",
+      personalInfo: { fullName: "Registered User" },
+    });
+    userId = user._id.toString();
+    token = signAuthToken({ userId, email: user.email });
     jest.restoreAllMocks();
   });
 

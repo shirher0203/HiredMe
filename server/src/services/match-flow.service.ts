@@ -7,6 +7,7 @@ import { UserModel } from "../models/user.model";
 import { computeMatchInputFingerprint, userToProfileInput } from "../utils/profile-input";
 import { sha256Hex } from "../utils/hash";
 import { HttpError } from "../utils/http-error";
+import { withAccountPersonalInfo } from "../utils/personal-info";
 
 export async function parseResumeForMatchFlow(
   matchFlowId: Types.ObjectId,
@@ -39,11 +40,19 @@ export async function parseResumeForMatchFlow(
 
   const existing = doc.parsedResume as ParsedResume | undefined;
   if (existing !== undefined && existing !== null && existing.raw_text_hash === resumeTextHash) {
-    return { parsedResume: existing, cached: true };
+    const user = await UserModel.findById(userId).lean();
+    if (!user) {
+      throw new HttpError(404, "NOT_FOUND", "User not found");
+    }
+    return { parsedResume: withAccountPersonalInfo(existing, user), cached: true };
   }
 
   try {
-    const parsedResume = await parseResume(text);
+    const user = await UserModel.findById(userId).lean();
+    if (!user) {
+      throw new HttpError(404, "NOT_FOUND", "User not found");
+    }
+    const parsedResume = withAccountPersonalInfo(await parseResume(text), user);
     doc.parsedResume = parsedResume;
     doc.status = "parsed";
     doc.lastError = undefined;

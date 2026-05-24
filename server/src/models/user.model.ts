@@ -22,10 +22,21 @@ const profileAnalysisSchema = new Schema(
   { _id: false }
 );
 
+const personalInfoSchema = new Schema(
+  {
+    fullName: { type: String },
+    phone: { type: String },
+    location: { type: String },
+    linkedinUrl: { type: String },
+    portfolioOrGithubUrl: { type: String },
+  },
+  { _id: false }
+);
 const userSchema = new Schema(
   {
     email: { type: String, required: true, unique: true, index: true },
     passwordHash: { type: String, required: true },
+    personalInfo: { type: personalInfoSchema, default: () => ({}) },
     profile: { type: profileSchema, default: () => ({}) },
     profileAnalysis: { type: profileAnalysisSchema },
     profileAnalysisHash: { type: String },
