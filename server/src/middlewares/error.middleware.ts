@@ -2,6 +2,11 @@ import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import type { ErrorResponse } from "../types/api.types";
 import { HttpError } from "../utils/http-error";
+import {
+  INTERNAL_ERROR_PUBLIC_MESSAGE,
+  isAiValidationErrorMessage,
+  isProductionEnv,
+} from "./error-map";
 
 export function errorMiddleware(
   err: unknown,
@@ -39,7 +44,25 @@ export function errorMiddleware(
     return res.status(status).json(response);
   }
 
-  const message = err instanceof Error ? err.message : "Internal server error";
+  if (err instanceof Error && isAiValidationErrorMessage(err.message)) {
+    const response: ErrorResponse = {
+      status: "error",
+      error: {
+        code: "AI_VALIDATION_FAILED",
+        message: err.message,
+      },
+    };
+    return res.status(422).json(response);
+  }
+
+  const exposeDetails = !isProductionEnv();
+  const message =
+    err instanceof Error
+      ? exposeDetails
+        ? err.message
+        : INTERNAL_ERROR_PUBLIC_MESSAGE
+      : INTERNAL_ERROR_PUBLIC_MESSAGE;
+
   const response: ErrorResponse = {
     status: "error",
     error: {

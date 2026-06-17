@@ -1,11 +1,8 @@
-import { mockFitPreviewJob, mockFitPreviewMatch } from "../mocks/fitPreview";
+import { getAuthSession } from "./auth";
 import type { JobAnalysis, MatchAnalysis } from "../types/matching";
+import type { ParsedResume } from "../types/parsedResume";
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface AnalyzeFitPreviewInput {
   jobDescription: string;
@@ -15,15 +12,38 @@ export interface AnalyzeFitPreviewInput {
 export interface AnalyzeFitPreviewResult {
   job: JobAnalysis;
   match: MatchAnalysis;
+  parsedResume: ParsedResume;
+}
+
+function buildAuthHeaders(): HeadersInit {
+  const session = getAuthSession();
+  if (!session) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${session.token}`,
+  };
 }
 
 export async function analyzeFitPreview(
   input: AnalyzeFitPreviewInput
 ): Promise<AnalyzeFitPreviewResult> {
-  void input;
-  await delay(750);
-  return {
-    job: mockFitPreviewJob,
-    match: mockFitPreviewMatch,
-  };
+  const formData = new FormData();
+  formData.append("jobDescription", input.jobDescription);
+  formData.append("file", input.resumeFile);
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/cv/analyze-resume`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const message = body?.error?.message ?? "Failed to analyze resume.";
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<AnalyzeFitPreviewResult>;
 }
