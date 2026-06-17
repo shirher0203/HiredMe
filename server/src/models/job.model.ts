@@ -46,6 +46,8 @@ const jobSchema = new Schema(
 );
 
 jobSchema.index({ userId: 1, status: 1 });
+jobSchema.index({ userId: 1, createdAt: -1, _id: -1 });
+jobSchema.index({ title: "text", description: "text" });
 
 export type JobDocument = InferSchemaType<typeof jobSchema> & { _id: string };
 

@@ -43,6 +43,10 @@ export function validate(schema: ZodTypeAny) {
       query?: unknown;
     };
 
+    // Always expose the parsed/coerced values here. In Express 5 `req.query`
+    // is a read-only getter, so controllers should prefer `req.validated`.
+    req.validated = data;
+
     if (data.body !== undefined) {
       req.body = data.body;
     }
