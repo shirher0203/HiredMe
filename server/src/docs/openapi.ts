@@ -5,6 +5,7 @@ import { practicePaths } from "./routes/practice.routes.doc";
 import { matchPaths } from "./routes/match.routes.doc";
 import { cvPaths } from "./routes/cv.routes.doc";
 import { assignmentsPaths } from "./routes/assignments.routes.doc";
+import { githubPaths } from "./routes/github.routes.doc";
 
 export function createOpenApiSpec() {
   return {
@@ -27,6 +28,7 @@ export function createOpenApiSpec() {
       { name: "Practice" },
       { name: "Match" },
       { name: "Assignments" },
+      { name: "Github" },
       { name: "CV" },
     ],
     components: {
@@ -88,6 +90,7 @@ export function createOpenApiSpec() {
       ...practicePaths,
       ...matchPaths,
       ...assignmentsPaths,
+      ...githubPaths,
       ...cvPaths,
     },
   };

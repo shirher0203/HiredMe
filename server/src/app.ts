@@ -8,6 +8,7 @@ import { practiceRouter } from "./routes/practice.routes";
 import { matchRouter } from "./routes/match.routes";
 import { cvRouter } from "./routes/cv.routes";
 import { assignmentsRouter } from "./routes/assignments.routes";
+import { githubRouter } from "./routes/github.routes";
 import { authMiddleware } from "./middlewares/auth.middleware";
 import { errorMiddleware } from "./middlewares/error.middleware";
 import { createOpenApiSpec } from "./docs/openapi";
@@ -37,6 +38,7 @@ export function createApp() {
   app.use("/api/practice", authMiddleware, practiceRouter);
   app.use("/api/match", authMiddleware, matchRouter);
   app.use("/api/assignments", authMiddleware, assignmentsRouter);
+  app.use("/api/github", authMiddleware, githubRouter);
   app.use("/api/v1/cv", cvRouter);
 
   app.use(errorMiddleware);

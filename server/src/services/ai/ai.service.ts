@@ -27,6 +27,8 @@ import type {
   ResumeAwareSemanticMatchAiResponse,
   HomeAssignmentEvaluation,
   EvaluateHomeAssignmentInput,
+  GithubRepoAnalysis,
+  AnalyzeGithubRepoInput,
 } from "./ai.types";
 import type {
   ParsedResume,
@@ -53,6 +55,7 @@ import {
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
   buildEvaluateHomeAssignmentPrompt,
+  buildAnalyzeGithubRepoPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
 import { normalizeSkills } from "../matching/skills-normalizer";
@@ -70,6 +73,7 @@ import {
   mockAnswerEvaluation,
   mockParsedResume,
   mockHomeAssignmentEvaluation,
+  mockGithubRepoAnalysis,
 } from "./mock-ai.responses";
 
 // ---------------------------------------------------------------------------
@@ -742,6 +746,24 @@ function validateHomeAssignmentEvaluation(
   };
 }
 
+function validateGithubRepoAnalysis(raw: string): GithubRepoAnalysis {
+  const fn = "analyzeGithubRepo";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  return {
+    architectureSummary: requireString(
+      parsed.architectureSummary,
+      "architectureSummary",
+      fn
+    ),
+    codeQualityScore: clampScore(
+      toNumberScore(parsed.codeQualityScore, "codeQualityScore", fn)
+    ),
+    strengths: requireStringArray(parsed.strengths, "strengths", fn),
+    concerns: requireStringArray(parsed.concerns, "concerns", fn),
+    detectedStack: requireStringArray(parsed.detectedStack, "detectedStack", fn),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public service functions
 // ---------------------------------------------------------------------------
@@ -923,6 +945,34 @@ export async function evaluateHomeAssignment(
     "evaluateHomeAssignment",
     prompt,
     validateHomeAssignmentEvaluation
+  );
+}
+
+export async function analyzeGithubRepo(
+  input: AnalyzeGithubRepoInput
+): Promise<GithubRepoAnalysis> {
+  if (!input?.metadata) {
+    throw new Error("analyzeGithubRepo: metadata is required");
+  }
+
+  if (isMockMode()) {
+    return mockGithubRepoAnalysis;
+  }
+
+  const prompt = buildAnalyzeGithubRepoPrompt({
+    fullName: input.metadata.fullName,
+    description: input.metadata.description,
+    primaryLanguage: input.metadata.primaryLanguage,
+    languages: input.metadata.languages,
+    stars: input.metadata.stars,
+    readme: input.metadata.readme,
+    packageJson: input.metadata.packageJson,
+  });
+
+  return withOneRetry<GithubRepoAnalysis>(
+    "analyzeGithubRepo",
+    prompt,
+    validateGithubRepoAnalysis
   );
 }
 

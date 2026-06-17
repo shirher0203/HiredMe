@@ -408,6 +408,67 @@ export function buildEvaluateHomeAssignmentPrompt(
   return lines.join("\n");
 }
 
+export interface AnalyzeGithubRepoPromptInput {
+  fullName: string;
+  description: string | null;
+  primaryLanguage: string | null;
+  languages: string[];
+  stars: number;
+  readme: string | null;
+  packageJson: string | null;
+}
+
+const GITHUB_README_MAX_CHARS = 8000;
+const GITHUB_PACKAGE_JSON_MAX_CHARS = 4000;
+
+export function buildAnalyzeGithubRepoPrompt(
+  input: AnalyzeGithubRepoPromptInput
+): string {
+  // TODO(role3): prompt tuning — member 3 will calibrate the rubric and
+  // wording later. Keep the JSON schema and field names stable so the
+  // validator in ai.service.ts does not need to change.
+  const schema = `{
+  "architectureSummary": string,
+  "codeQualityScore": number (0-100),
+  "strengths": string[],
+  "concerns": string[],
+  "detectedStack": string[]
+}`;
+
+  const readme =
+    input.readme && input.readme.length > GITHUB_README_MAX_CHARS
+      ? `${input.readme.slice(0, GITHUB_README_MAX_CHARS)}\n[truncated]`
+      : input.readme ?? "(no README)";
+  const packageJson =
+    input.packageJson && input.packageJson.length > GITHUB_PACKAGE_JSON_MAX_CHARS
+      ? `${input.packageJson.slice(0, GITHUB_PACKAGE_JSON_MAX_CHARS)}\n[truncated]`
+      : input.packageJson ?? "(no package.json)";
+
+  return [
+    SYSTEM_HEADER,
+    "",
+    "Task: analyze the GitHub repository below and assess its architecture and code quality.",
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    '"codeQualityScore" must be a number between 0 and 100 (inclusive).',
+    '"strengths", "concerns", and "detectedStack" must contain strings only.',
+    "",
+    `Repository: ${input.fullName}`,
+    `Description: ${input.description ?? "(none)"}`,
+    `Primary language: ${input.primaryLanguage ?? "(unknown)"}`,
+    formatStringList("Languages", input.languages),
+    `Stars: ${input.stars}`,
+    "",
+    "package.json:",
+    packageJson,
+    "",
+    "README:",
+    readme,
+  ].join("\n");
+}
+
 export function buildAnalyzeProfilePrompt(profile: ProfileInput): string {
   const schema = `{
   "seniorityEstimate": "junior" | "mid" | "senior",
