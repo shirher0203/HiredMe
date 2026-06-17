@@ -8,6 +8,15 @@ import {
   generateInterviewQuestions,
 } from "../services/ai/ai.service";
 
+interface CreateSessionBody {
+  interviewType: "hr" | "technical";
+  count?: number;
+  jobId?: string;
+  language?: "he" | "en";
+  profileSkills?: string[];
+  jobRequiredSkills?: string[];
+}
+
 export async function createPracticeSession(
   req: Request,
   res: Response,
@@ -15,30 +24,41 @@ export async function createPracticeSession(
 ) {
   try {
     const { userId } = requireUser(req);
-    const interviewType = req.body?.interviewType;
+    const body = (req.validated?.body ?? req.body ?? {}) as CreateSessionBody;
+
+    const interviewType = body.interviewType;
     if (interviewType !== "hr" && interviewType !== "technical") {
       throw new HttpError(400, "VALIDATION_ERROR", "Invalid interviewType");
     }
 
-    const count = typeof req.body?.count === "number" ? req.body.count : 5;
-    const profileSkills = Array.isArray(req.body?.profileSkills)
-      ? req.body.profileSkills.filter((s: unknown): s is string => typeof s === "string")
+    const count = typeof body.count === "number" ? body.count : 5;
+    const profileSkills = Array.isArray(body.profileSkills)
+      ? body.profileSkills.filter((s: unknown): s is string => typeof s === "string")
       : [];
-    const jobRequiredSkills = Array.isArray(req.body?.jobRequiredSkills)
-      ? req.body.jobRequiredSkills.filter((s: unknown): s is string => typeof s === "string")
+    // Start from any skills the frontend supplied; if the linked job has its
+    // own analyzed required skills, those take precedence below.
+    let jobRequiredSkills = Array.isArray(body.jobRequiredSkills)
+      ? body.jobRequiredSkills.filter((s: unknown): s is string => typeof s === "string")
       : undefined;
-    const language = req.body?.language === "he" ? "he" : "en";
+    const language = body.language === "he" ? "he" : "en";
 
     let jobId: string | undefined;
-    if (typeof req.body?.jobId === "string") {
+    if (typeof body.jobId === "string" && body.jobId.trim() !== "") {
       const job = await JobModel.findOne({
-        _id: asObjectId(req.body.jobId),
+        _id: asObjectId(body.jobId),
         userId,
       }).lean();
       if (!job) {
         throw new HttpError(404, "NOT_FOUND", "Job not found");
       }
       jobId = String(job._id);
+
+      const analyzedSkills = job.jobAnalysis?.requiredSkills;
+      if (Array.isArray(analyzedSkills) && analyzedSkills.length > 0) {
+        jobRequiredSkills = analyzedSkills.filter(
+          (s: unknown): s is string => typeof s === "string"
+        );
+      }
     }
 
     const { questions } = await generateInterviewQuestions({
