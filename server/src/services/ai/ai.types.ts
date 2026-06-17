@@ -101,6 +101,28 @@ export interface SemanticMatchAiResponse {
 }
 
 /**
+ * AI evaluation of an uploaded home assignment (code submission).
+ * Produced by `evaluateHomeAssignment`; `score` is clamped to 0–100
+ * inside `ai.service.ts` before being returned.
+ */
+export interface HomeAssignmentEvaluation {
+  score: number;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+}
+
+/**
+ * Input for evaluating a home assignment.
+ * Consumed by `evaluateHomeAssignment`.
+ */
+export interface EvaluateHomeAssignmentInput {
+  readonly code: string;
+  readonly language?: string;
+  readonly jobContext?: string;
+}
+
+/**
  * Resume-aware extension of `SemanticMatchAiResponse`.
  * Produced when `calculateMatch` is called with a `ParsedResume`.
  * All extra fields are optional qualitative signals — they never

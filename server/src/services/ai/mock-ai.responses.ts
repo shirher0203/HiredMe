@@ -11,6 +11,7 @@ import type {
   InterviewQuestion,
   SemanticMatchAiResponse,
   ResumeAwareSemanticMatchAiResponse,
+  HomeAssignmentEvaluation,
 } from "./ai.types";
 import type { JobAnalysis } from "../matching/matching.types";
 import type { ParsedResume } from "./parsed-resume.types";
@@ -167,6 +168,20 @@ export const mockParsedResume: ParsedResume = {
     language_detected: "en",
     years_of_experience_estimate: 1,
   },
+};
+
+export const mockHomeAssignmentEvaluation: HomeAssignmentEvaluation = {
+  score: 82,
+  summary:
+    "A clean, working solution that solves the core problem correctly with readable, well-structured code. It would benefit from input validation and a few edge-case tests to be production-ready.",
+  strengths: [
+    "Correct core logic with clear, descriptive naming.",
+    "Good function decomposition and consistent formatting.",
+  ],
+  improvements: [
+    "Add input validation and explicit error handling for malformed input.",
+    "Cover edge cases with unit tests (empty input, large values).",
+  ],
 };
 
 export const mockAnswerEvaluation: AnswerEvaluation = {

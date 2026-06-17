@@ -4,6 +4,7 @@ import { jobsPaths } from "./routes/jobs.routes.doc";
 import { practicePaths } from "./routes/practice.routes.doc";
 import { matchPaths } from "./routes/match.routes.doc";
 import { cvPaths } from "./routes/cv.routes.doc";
+import { assignmentsPaths } from "./routes/assignments.routes.doc";
 
 export function createOpenApiSpec() {
   return {
@@ -25,6 +26,7 @@ export function createOpenApiSpec() {
       { name: "Jobs" },
       { name: "Practice" },
       { name: "Match" },
+      { name: "Assignments" },
       { name: "CV" },
     ],
     components: {
@@ -85,6 +87,7 @@ export function createOpenApiSpec() {
       ...jobsPaths,
       ...practicePaths,
       ...matchPaths,
+      ...assignmentsPaths,
       ...cvPaths,
     },
   };

@@ -356,6 +356,58 @@ export function buildParseResumePrompt(resumeText: string): string {
   ].join("\n");
 }
 
+export interface EvaluateHomeAssignmentPromptInput {
+  readonly code: string;
+  readonly language?: string;
+  readonly jobContext?: string;
+}
+
+const HOME_ASSIGNMENT_MAX_CHARS = 20000;
+
+export function buildEvaluateHomeAssignmentPrompt(
+  input: EvaluateHomeAssignmentPromptInput
+): string {
+  // TODO(role3): prompt tuning — member 3 will calibrate the scoring rubric
+  // and wording later. Keep the JSON schema and field names stable so the
+  // validator in ai.service.ts does not need to change.
+  const schema = `{
+  "score": number (0-100),
+  "summary": string,
+  "strengths": string[],
+  "improvements": string[]
+}`;
+
+  const truncated = input.code.length > HOME_ASSIGNMENT_MAX_CHARS;
+  const code = truncated
+    ? `[truncated to ${HOME_ASSIGNMENT_MAX_CHARS} chars]\n${input.code.slice(
+        0,
+        HOME_ASSIGNMENT_MAX_CHARS
+      )}`
+    : input.code;
+
+  const lines = [
+    SYSTEM_HEADER,
+    "",
+    "Task: evaluate the candidate's home assignment code submission below.",
+    "Score overall quality (correctness, readability, structure, and best practices).",
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    '"score" must be a number between 0 and 100 (inclusive). Do not use a percentage string.',
+    '"strengths" and "improvements" must contain strings only — 2 or 3 concrete items each.',
+    "",
+  ];
+  if (input.language) {
+    lines.push(`Programming language: ${input.language}`);
+  }
+  if (input.jobContext) {
+    lines.push(`Target role context: ${input.jobContext}`);
+  }
+  lines.push("", "Code submission:", code);
+  return lines.join("\n");
+}
+
 export function buildAnalyzeProfilePrompt(profile: ProfileInput): string {
   const schema = `{
   "seniorityEstimate": "junior" | "mid" | "senior",

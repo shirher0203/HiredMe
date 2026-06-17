@@ -25,6 +25,8 @@ import type {
   EvaluateAnswerInput,
   SemanticMatchAiResponse,
   ResumeAwareSemanticMatchAiResponse,
+  HomeAssignmentEvaluation,
+  EvaluateHomeAssignmentInput,
 } from "./ai.types";
 import type {
   ParsedResume,
@@ -50,6 +52,7 @@ import {
   buildResumeAwareSemanticMatchPrompt,
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
+  buildEvaluateHomeAssignmentPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
 import { normalizeSkills } from "../matching/skills-normalizer";
@@ -66,6 +69,7 @@ import {
   mockInterviewQuestions,
   mockAnswerEvaluation,
   mockParsedResume,
+  mockHomeAssignmentEvaluation,
 } from "./mock-ai.responses";
 
 // ---------------------------------------------------------------------------
@@ -725,6 +729,19 @@ function validateAnswerEvaluation(raw: string): AnswerEvaluation {
   };
 }
 
+function validateHomeAssignmentEvaluation(
+  raw: string
+): HomeAssignmentEvaluation {
+  const fn = "evaluateHomeAssignment";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  return {
+    score: clampScore(toNumberScore(parsed.score, "score", fn)),
+    summary: requireString(parsed.summary, "summary", fn),
+    strengths: requireStringArray(parsed.strengths, "strengths", fn),
+    improvements: requireStringArray(parsed.improvements, "improvements", fn),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public service functions
 // ---------------------------------------------------------------------------
@@ -882,6 +899,30 @@ export async function evaluateAnswer(
     "evaluateAnswer",
     prompt,
     validateAnswerEvaluation
+  );
+}
+
+export async function evaluateHomeAssignment(
+  input: EvaluateHomeAssignmentInput
+): Promise<HomeAssignmentEvaluation> {
+  if (typeof input?.code !== "string" || input.code.trim() === "") {
+    throw new Error("evaluateHomeAssignment: code must be a non-empty string");
+  }
+
+  if (isMockMode()) {
+    return mockHomeAssignmentEvaluation;
+  }
+
+  const prompt = buildEvaluateHomeAssignmentPrompt({
+    code: input.code,
+    language: input.language,
+    jobContext: input.jobContext,
+  });
+
+  return withOneRetry<HomeAssignmentEvaluation>(
+    "evaluateHomeAssignment",
+    prompt,
+    validateHomeAssignmentEvaluation
   );
 }
 
