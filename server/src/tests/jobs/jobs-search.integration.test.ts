@@ -52,7 +52,7 @@ describe("Job search & filtering API", () => {
       userId: new Types.ObjectId(userId),
       title: "Generic Role",
       description: "A generic job description.",
-      status: "to_apply",
+      status: "applied",
       ...overrides,
     });
   }
@@ -141,11 +141,17 @@ describe("Job search & filtering API", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty("to_apply");
-    expect(res.body).toHaveProperty("applied");
-    expect(res.body).toHaveProperty("hr");
-    expect(res.body).toHaveProperty("technical");
-    expect(res.body).toHaveProperty("offer");
+    for (const status of [
+      "applied",
+      "hr",
+      "technical",
+      "assignment",
+      "manager",
+      "offer",
+      "not_relevant",
+    ]) {
+      expect(res.body).toHaveProperty(status);
+    }
     expect(res.body.hr).toHaveLength(1);
   });
 
@@ -169,5 +175,77 @@ describe("Job search & filtering API", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(400);
+  });
+
+  it("creates a job with optional metadata fields", async () => {
+    const { token } = makeAuthToken();
+    const res = await request(app)
+      .post("/api/jobs")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "Frontend Engineer",
+        company: "Acme Corp",
+        description: "React and TypeScript role.",
+        notes: "Referral from Alex",
+        contact: "recruiter@acme.com",
+        jobUrl: "https://acme.com/jobs/frontend",
+        source: "manual",
+        status: "applied",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe("Frontend Engineer");
+    expect(res.body.company).toBe("Acme Corp");
+    expect(res.body.notes).toBe("Referral from Alex");
+    expect(res.body.contact).toBe("recruiter@acme.com");
+    expect(res.body.jobUrl).toBe("https://acme.com/jobs/frontend");
+    expect(res.body.status).toBe("applied");
+  });
+
+  it("patches job details", async () => {
+    const { token, userId } = makeAuthToken();
+    const job = await seedJob(userId, { title: "Old Title" });
+
+    const res = await request(app)
+      .patch(`/api/jobs/${String(job._id)}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "New Title",
+        company: "Beta Inc",
+        notes: "Follow up next week",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe("New Title");
+    expect(res.body.company).toBe("Beta Inc");
+    expect(res.body.notes).toBe("Follow up next week");
+  });
+
+  it("updates job pipeline status", async () => {
+    const { token, userId } = makeAuthToken();
+    const job = await seedJob(userId, { status: "applied" });
+
+    const res = await request(app)
+      .patch(`/api/jobs/${String(job._id)}/status`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "technical" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("technical");
+  });
+
+  it("deletes a job", async () => {
+    const { token, userId } = makeAuthToken();
+    const job = await seedJob(userId);
+
+    const res = await request(app)
+      .delete(`/api/jobs/${String(job._id)}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(String(job._id));
+
+    const remaining = await JobModel.findById(job._id);
+    expect(remaining).toBeNull();
   });
 });

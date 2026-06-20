@@ -1,9 +1,6 @@
 import { type FormEvent, useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  analyzeFitPreview,
-  type AnalyzeFitPreviewResult,
-} from "../services/fitAnalysis";
+import { analyzeFitPreview } from "../services/fitAnalysis";
 import type { JobAnalysis, MatchAnalysis } from "../types/matching";
 import type { ParsedResume } from "../types/parsedResume";
 
@@ -290,7 +287,9 @@ export function FitPreviewPage() {
         jobDescription: trimmed,
         resumeFile: resumeFile as File,
       });
-      navigate("/match/result", { state: data });
+      navigate("/match/result", {
+        state: { ...data, jobDescription: trimmed },
+      });
     } catch (err) {
       setJobError(err instanceof Error ? err.message : "Failed to analyze resume.");
     } finally {

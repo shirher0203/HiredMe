@@ -3,10 +3,13 @@ import { z } from "zod";
 import {
   analyzeJobForUser,
   createJob,
+  deleteJob,
   getJobs,
+  patchJob,
   patchJobStatus,
   VALID_STATUSES,
 } from "../controllers/jobs.controller";
+import { JOB_SOURCES } from "../models/job.model";
 import { validate } from "../middlewares/validate.middleware";
 
 const listJobsQuerySchema = z.object({
@@ -20,9 +23,57 @@ const listJobsQuerySchema = z.object({
   }),
 });
 
+const createJobSchema = z.object({
+  body: z.object({
+    description: z.string().trim().min(1),
+    title: z.string().trim().min(1).optional(),
+    company: z.string().trim().optional(),
+    notes: z.string().trim().optional(),
+    contact: z.string().trim().optional(),
+    jobUrl: z.string().trim().optional(),
+    source: z.enum(JOB_SOURCES).optional(),
+    status: z.enum(VALID_STATUSES).optional(),
+  }),
+});
+
+const patchJobSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+  }),
+  body: z
+    .object({
+      title: z.string().trim().min(1).optional(),
+      company: z.string().trim().optional(),
+      description: z.string().trim().min(1).optional(),
+      notes: z.string().trim().optional(),
+      contact: z.string().trim().optional(),
+      jobUrl: z.string().trim().optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, {
+      message: "At least one field is required",
+    }),
+});
+
+const patchJobStatusSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+  }),
+  body: z.object({
+    status: z.enum(VALID_STATUSES),
+  }),
+});
+
+const jobIdParamsSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+  }),
+});
+
 export const jobsRouter = Router();
 
 jobsRouter.get("/", validate(listJobsQuerySchema), getJobs);
-jobsRouter.post("/", createJob);
-jobsRouter.patch("/:id/status", patchJobStatus);
+jobsRouter.post("/", validate(createJobSchema), createJob);
+jobsRouter.patch("/:id", validate(patchJobSchema), patchJob);
+jobsRouter.patch("/:id/status", validate(patchJobStatusSchema), patchJobStatus);
+jobsRouter.delete("/:id", validate(jobIdParamsSchema), deleteJob);
 jobsRouter.post("/:id/analyze", analyzeJobForUser);

@@ -35,7 +35,7 @@ describe("Practice session job-linking", () => {
       userId: new Types.ObjectId(userId),
       title: "Backend Role",
       description: "Node + MongoDB backend role.",
-      status: "to_apply",
+      status: "applied",
       jobAnalysis: {
         roleTitle: "Backend Developer",
         requiredSkills: ["node", "mongodb", "typescript"],
