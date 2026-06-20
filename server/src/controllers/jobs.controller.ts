@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { JOB_STATUSES, JobModel, type JobStatus } from "../models/job.model";
+import { JOB_SOURCES, JOB_STATUSES, JobModel, type JobSource, type JobStatus } from "../models/job.model";
 import { UserModel } from "../models/user.model";
 import { HttpError } from "../utils/http-error";
 import { requireUser, asObjectId, requireIdParam } from "./controller-utils";
@@ -55,6 +55,51 @@ function requireDescription(raw: unknown): string {
 function deriveTitle(description: string): string {
   const firstLine = description.split("\n")[0]?.trim() ?? "";
   return firstLine.slice(0, 80) || "Untitled job";
+}
+
+function optionalTrimmedString(raw: unknown, field: string): string | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "VALIDATION_ERROR", `${field} must be a string`);
+  }
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function optionalSource(raw: unknown): JobSource | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "string" || !JOB_SOURCES.includes(raw as JobSource)) {
+    throw new HttpError(400, "VALIDATION_ERROR", "Invalid source");
+  }
+  return raw as JobSource;
+}
+
+function optionalStatus(raw: unknown): JobStatus | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  return requireStatus(raw);
+}
+
+function serializeJob(job: Record<string, unknown>) {
+  return {
+    id: String(job._id),
+    title: job.title,
+    company: job.company ?? null,
+    description: job.description,
+    status: job.status,
+    notes: job.notes ?? null,
+    contact: job.contact ?? null,
+    jobUrl: job.jobUrl ?? null,
+    source: job.source ?? "manual",
+    matchAnalysis: job.matchAnalysis ?? null,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
 }
 
 function requireStatus(raw: unknown): JobStatus {
@@ -156,20 +201,86 @@ export async function createJob(req: Request, res: Response, next: NextFunction)
       typeof req.body?.title === "string" && req.body.title.trim() !== ""
         ? req.body.title.trim()
         : deriveTitle(description);
+    const status = optionalStatus(req.body?.status) ?? "applied";
 
     const job = await JobModel.create({
       userId: asObjectId(userId),
       title,
+      company: optionalTrimmedString(req.body?.company, "company"),
       description,
-      status: "applied",
+      status,
+      notes: optionalTrimmedString(req.body?.notes, "notes"),
+      contact: optionalTrimmedString(req.body?.contact, "contact"),
+      jobUrl: optionalTrimmedString(req.body?.jobUrl, "jobUrl"),
+      source: optionalSource(req.body?.source) ?? "manual",
     });
 
-    return res.status(201).json({
-      id: String(job._id),
-      title: job.title,
-      description: job.description,
-      status: job.status,
-    });
+    return res.status(201).json(serializeJob(job.toObject() as Record<string, unknown>));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function patchJob(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = requireUser(req);
+    const jobId = requireIdParam(req.params.id);
+    const body = req.body ?? {};
+    const updates: Record<string, unknown> = {};
+
+    if ("title" in body) {
+      const title = optionalTrimmedString(body.title, "title");
+      if (!title) {
+        throw new HttpError(400, "VALIDATION_ERROR", "title cannot be empty");
+      }
+      updates.title = title;
+    }
+    if ("description" in body) {
+      updates.description = requireDescription(body.description);
+    }
+    if ("company" in body) {
+      updates.company = optionalTrimmedString(body.company, "company");
+    }
+    if ("notes" in body) {
+      updates.notes = optionalTrimmedString(body.notes, "notes");
+    }
+    if ("contact" in body) {
+      updates.contact = optionalTrimmedString(body.contact, "contact");
+    }
+    if ("jobUrl" in body) {
+      updates.jobUrl = optionalTrimmedString(body.jobUrl, "jobUrl");
+    }
+
+    if (Object.keys(updates).length === 0) {
+      throw new HttpError(400, "VALIDATION_ERROR", "At least one field is required");
+    }
+
+    const job = await JobModel.findOneAndUpdate(
+      { _id: asObjectId(jobId), userId },
+      { $set: updates },
+      { new: true }
+    ).lean();
+    if (!job) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    return res.status(200).json(serializeJob(job as Record<string, unknown>));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function deleteJob(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = requireUser(req);
+    const jobId = requireIdParam(req.params.id);
+    const job = await JobModel.findOneAndDelete({
+      _id: asObjectId(jobId),
+      userId,
+    }).lean();
+    if (!job) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    return res.status(200).json({ id: String(job._id) });
   } catch (err) {
     return next(err);
   }
@@ -188,7 +299,7 @@ export async function patchJobStatus(req: Request, res: Response, next: NextFunc
     if (!job) {
       throw new HttpError(404, "NOT_FOUND", "Job not found");
     }
-    return res.status(200).json(job);
+    return res.status(200).json(serializeJob(job as Record<string, unknown>));
   } catch (err) {
     return next(err);
   }
