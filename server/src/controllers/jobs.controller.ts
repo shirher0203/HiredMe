@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { JobModel } from "../models/job.model";
+import { JOB_STATUSES, JobModel, type JobStatus } from "../models/job.model";
 import { UserModel } from "../models/user.model";
 import { HttpError } from "../utils/http-error";
 import { requireUser, asObjectId, requireIdParam } from "./controller-utils";
@@ -7,14 +7,7 @@ import { analyzeJob, calculateMatch } from "../services/ai/ai.service";
 import { hashPayload } from "../utils/hash";
 import type { JobAnalysis } from "../services/matching/matching.types";
 
-export const VALID_STATUSES = [
-  "to_apply",
-  "applied",
-  "hr",
-  "technical",
-  "offer",
-] as const;
-type JobStatus = (typeof VALID_STATUSES)[number];
+export const VALID_STATUSES = JOB_STATUSES;
 
 interface ListJobsQuery {
   view?: "board" | "list";
@@ -71,17 +64,23 @@ function requireStatus(raw: unknown): JobStatus {
   return raw as JobStatus;
 }
 
+function normalizeStatus(raw: unknown): JobStatus {
+  if (raw === "to_apply") {
+    return "applied";
+  }
+  if (typeof raw === "string" && VALID_STATUSES.includes(raw as JobStatus)) {
+    return raw as JobStatus;
+  }
+  return "applied";
+}
+
 function groupByStatus(jobs: Array<Record<string, unknown>>) {
-  const grouped: Record<JobStatus, Array<Record<string, unknown>>> = {
-    to_apply: [],
-    applied: [],
-    hr: [],
-    technical: [],
-    offer: [],
-  };
+  const grouped = Object.fromEntries(
+    VALID_STATUSES.map((status) => [status, [] as Array<Record<string, unknown>>])
+  ) as Record<JobStatus, Array<Record<string, unknown>>>;
 
   for (const job of jobs) {
-    const status = (job.status as JobStatus) ?? "to_apply";
+    const status = normalizeStatus(job.status);
     grouped[status].push(job);
   }
   return grouped;
@@ -162,7 +161,7 @@ export async function createJob(req: Request, res: Response, next: NextFunction)
       userId: asObjectId(userId),
       title,
       description,
-      status: "to_apply",
+      status: "applied",
     });
 
     return res.status(201).json({
