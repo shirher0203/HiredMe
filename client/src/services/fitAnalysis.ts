@@ -15,6 +15,10 @@ export interface AnalyzeFitPreviewResult {
   parsedResume: ParsedResume;
 }
 
+export interface MatchResultNavigationState extends AnalyzeFitPreviewResult {
+  jobDescription: string;
+}
+
 function buildAuthHeaders(): HeadersInit {
   const session = getAuthSession();
   if (!session) {

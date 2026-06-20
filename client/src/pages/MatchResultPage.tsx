@@ -1,12 +1,10 @@
-import { Link, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import type { MatchResultNavigationState } from "../services/fitAnalysis";
+import { getAuthSession } from "../services/auth";
+import { createJob } from "../services/jobs";
 import type { JobAnalysis, MatchAnalysis } from "../types/matching";
 import type { ParsedResume } from "../types/parsedResume";
-
-interface MatchResultState {
-  job: JobAnalysis;
-  match: MatchAnalysis;
-  parsedResume: ParsedResume;
-}
 
 function SkillChips({
   label,
@@ -217,7 +215,49 @@ function ResumeSection({ resume }: { resume: ParsedResume }) {
 
 export function MatchResultPage() {
   const location = useLocation();
-  const state = location.state as MatchResultState | null;
+  const navigate = useNavigate();
+  const session = getAuthSession();
+  const state = location.state as MatchResultNavigationState | null;
+  const [savedJobId, setSavedJobId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function handleSaveToBoard() {
+    if (!state?.job || !state.match) {
+      return;
+    }
+
+    if (!session) {
+      navigate("/auth/login", {
+        state: { from: "/match/result", matchResult: state },
+      });
+      return;
+    }
+
+    if (savedJobId) {
+      return;
+    }
+
+    const description =
+      state.jobDescription?.trim() || state.job.summary.trim() || "Job application";
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const job = await createJob({
+        title: state.job.roleTitle,
+        description,
+        source: "match",
+        status: "applied",
+        notes: `Match score: ${state.match.finalScore}/100`,
+      });
+      setSavedJobId(job.id);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save to board.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (!state || !state.job || !state.match || !state.parsedResume) {
     return (
@@ -258,7 +298,29 @@ export function MatchResultPage() {
           <JobCard job={state.job} />
         </div>
 
-        <div className="mt-8">
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          {savedJobId ? (
+            <>
+              <span className="inline-flex rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-800">
+                Saved to board
+              </span>
+              <Link
+                to="/applications"
+                className="inline-flex rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:from-indigo-500 hover:to-violet-500"
+              >
+                View on board
+              </Link>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleSaveToBoard()}
+              disabled={saving}
+              className="inline-flex rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:from-indigo-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "Saving..." : session ? "Save to board" : "Log in to save to board"}
+            </button>
+          )}
           <Link
             to="/match"
             className="inline-flex rounded-xl bg-white px-5 py-3 text-sm font-semibold text-indigo-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
@@ -266,6 +328,12 @@ export function MatchResultPage() {
             Analyze another resume
           </Link>
         </div>
+
+        {saveError ? (
+          <p className="mt-4 text-sm text-red-600" role="alert">
+            {saveError}
+          </p>
+        ) : null}
       </div>
     </div>
   );
