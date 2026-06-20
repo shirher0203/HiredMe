@@ -492,6 +492,7 @@ function JobFormModal({
 export function ApplicationsBoardPage() {
   const navigate = useNavigate();
   const session = getAuthSession();
+  const authToken = session?.token ?? null;
 
   const [board, setBoard] = useState<JobsBoard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -518,10 +519,11 @@ export function ApplicationsBoardPage() {
   }, []);
 
   useEffect(() => {
-    if (session) {
-      void loadBoard();
+    if (!authToken) {
+      return;
     }
-  }, [session, loadBoard]);
+    void loadBoard();
+  }, [authToken, loadBoard]);
 
   if (!session) {
     return <Navigate to="/auth/login" replace state={{ from: "/applications" }} />;
