@@ -249,7 +249,6 @@ export function MatchResultPage() {
         description,
         source: "match",
         status: "applied",
-        notes: `Match score: ${state.match.finalScore}/100`,
       });
       setSavedJobId(job.id);
     } catch (err) {

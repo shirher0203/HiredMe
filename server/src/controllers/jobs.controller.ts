@@ -239,16 +239,16 @@ export async function patchJob(req: Request, res: Response, next: NextFunction) 
       updates.description = requireDescription(body.description);
     }
     if ("company" in body) {
-      updates.company = optionalTrimmedString(body.company, "company");
+      updates.company = optionalTrimmedString(body.company, "company") ?? null;
     }
     if ("notes" in body) {
-      updates.notes = optionalTrimmedString(body.notes, "notes");
+      updates.notes = optionalTrimmedString(body.notes, "notes") ?? null;
     }
     if ("contact" in body) {
-      updates.contact = optionalTrimmedString(body.contact, "contact");
+      updates.contact = optionalTrimmedString(body.contact, "contact") ?? null;
     }
     if ("jobUrl" in body) {
-      updates.jobUrl = optionalTrimmedString(body.jobUrl, "jobUrl");
+      updates.jobUrl = optionalTrimmedString(body.jobUrl, "jobUrl") ?? null;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -256,9 +256,9 @@ export async function patchJob(req: Request, res: Response, next: NextFunction) 
     }
 
     const job = await JobModel.findOneAndUpdate(
-      { _id: asObjectId(jobId), userId },
+      { _id: asObjectId(jobId), userId: asObjectId(userId) },
       { $set: updates },
-      { new: true }
+      { returnDocument: "after" }
     ).lean();
     if (!job) {
       throw new HttpError(404, "NOT_FOUND", "Job not found");
@@ -292,9 +292,9 @@ export async function patchJobStatus(req: Request, res: Response, next: NextFunc
     const status = requireStatus(req.body?.status);
     const jobId = requireIdParam(req.params.id);
     const job = await JobModel.findOneAndUpdate(
-      { _id: asObjectId(jobId), userId },
+      { _id: asObjectId(jobId), userId: asObjectId(userId) },
       { $set: { status } },
-      { new: true }
+      { returnDocument: "after" }
     ).lean();
     if (!job) {
       throw new HttpError(404, "NOT_FOUND", "Job not found");

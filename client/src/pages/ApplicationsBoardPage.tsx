@@ -314,11 +314,14 @@ function JobFormModal({
   const [contact, setContact] = useState(initial?.contact ?? "");
   const [jobUrl, setJobUrl] = useState(initial?.jobUrl ?? "");
   const [status, setStatus] = useState<JobStatus>(initial?.status ?? "applied");
+  const [localError, setLocalError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setLocalError(null);
     const trimmedDescription = description.trim();
     if (!trimmedDescription) {
+      setLocalError("Job description is required.");
       return;
     }
 
@@ -337,11 +340,11 @@ function JobFormModal({
 
     await props.onSubmit({
       title: title.trim() || undefined,
-      company: company.trim() || undefined,
+      company: company.trim(),
       description: trimmedDescription,
-      notes: notes.trim() || undefined,
-      contact: contact.trim() || undefined,
-      jobUrl: jobUrl.trim() || undefined,
+      notes: notes.trim(),
+      contact: contact.trim(),
+      jobUrl: jobUrl.trim(),
     });
   }
 
@@ -362,7 +365,7 @@ function JobFormModal({
           {mode === "create" ? "Add application" : "Edit application"}
         </h2>
 
-        <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+        <form className="mt-5 space-y-4" noValidate onSubmit={handleSubmit}>
           <div>
             <label htmlFor={titleId} className="mb-1 block text-sm font-medium text-slate-700">
               Job title
@@ -437,7 +440,8 @@ function JobFormModal({
             </label>
             <input
               id={jobUrlId}
-              type="url"
+              type="text"
+              inputMode="url"
               value={jobUrl}
               onChange={(e) => setJobUrl(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
@@ -465,7 +469,9 @@ function JobFormModal({
             </div>
           ) : null}
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {localError || error ? (
+            <p className="text-sm text-red-600">{localError ?? error}</p>
+          ) : null}
 
           <div className="flex justify-end gap-2 pt-2">
             <button
@@ -709,6 +715,7 @@ export function ApplicationsBoardPage() {
 
       {modal === "edit" && editingJob ? (
         <JobFormModal
+          key={editingJob.id}
           mode="edit"
           initial={editingJob}
           onClose={() => {
