@@ -11,6 +11,8 @@ import type {
   InterviewQuestion,
   SemanticMatchAiResponse,
   ResumeAwareSemanticMatchAiResponse,
+  HomeAssignmentEvaluation,
+  GithubRepoAnalysis,
 } from "./ai.types";
 import type { JobAnalysis } from "../matching/matching.types";
 import type { ParsedResume } from "./parsed-resume.types";
@@ -167,6 +169,35 @@ export const mockParsedResume: ParsedResume = {
     language_detected: "en",
     years_of_experience_estimate: 1,
   },
+};
+
+export const mockHomeAssignmentEvaluation: HomeAssignmentEvaluation = {
+  score: 82,
+  summary:
+    "A clean, working solution that solves the core problem correctly with readable, well-structured code. It would benefit from input validation and a few edge-case tests to be production-ready.",
+  strengths: [
+    "Correct core logic with clear, descriptive naming.",
+    "Good function decomposition and consistent formatting.",
+  ],
+  improvements: [
+    "Add input validation and explicit error handling for malformed input.",
+    "Cover edge cases with unit tests (empty input, large values).",
+  ],
+};
+
+export const mockGithubRepoAnalysis: GithubRepoAnalysis = {
+  architectureSummary:
+    "A small full-stack TypeScript project with a clear client/server split. The backend follows an MVC-with-service-layer structure and the code is organized into controllers, services, and models.",
+  codeQualityScore: 80,
+  strengths: [
+    "Clear separation of concerns between controllers and services.",
+    "Consistent TypeScript usage with typed models.",
+  ],
+  concerns: [
+    "Limited automated test coverage on some modules.",
+    "A few endpoints lack input validation.",
+  ],
+  detectedStack: ["typescript", "node", "express", "react", "mongodb"],
 };
 
 export const mockAnswerEvaluation: AnswerEvaluation = {

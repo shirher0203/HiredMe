@@ -7,6 +7,8 @@ import { jobsRouter } from "./routes/jobs.routes";
 import { practiceRouter } from "./routes/practice.routes";
 import { matchRouter } from "./routes/match.routes";
 import { cvRouter } from "./routes/cv.routes";
+import { assignmentsRouter } from "./routes/assignments.routes";
+import { githubRouter } from "./routes/github.routes";
 import { matchFlowRouter } from "./routes/match-flow.routes";
 import { authMiddleware } from "./middlewares/auth.middleware";
 import { errorMiddleware } from "./middlewares/error.middleware";
@@ -36,6 +38,8 @@ export function createApp() {
   app.use("/api/jobs", authMiddleware, jobsRouter);
   app.use("/api/practice", authMiddleware, practiceRouter);
   app.use("/api/match", authMiddleware, matchRouter);
+  app.use("/api/assignments", authMiddleware, assignmentsRouter);
+  app.use("/api/github", authMiddleware, githubRouter);
   app.use("/api/v1/cv", cvRouter);
   app.use("/api/v1/match-flow", authMiddleware, matchFlowRouter);
 

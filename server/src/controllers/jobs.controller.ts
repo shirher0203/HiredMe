@@ -7,8 +7,50 @@ import { analyzeJob, calculateMatch } from "../services/ai/ai.service";
 import { hashPayload } from "../utils/hash";
 import type { JobAnalysis } from "../services/matching/matching.types";
 
-const VALID_STATUSES = ["to_apply", "applied", "hr", "technical", "offer"] as const;
+export const VALID_STATUSES = [
+  "to_apply",
+  "applied",
+  "hr",
+  "technical",
+  "offer",
+] as const;
 type JobStatus = (typeof VALID_STATUSES)[number];
+
+interface ListJobsQuery {
+  view?: "board" | "list";
+  q?: string;
+  status?: JobStatus;
+  minScore?: number;
+  limit?: number;
+  cursor?: string;
+}
+
+interface DecodedCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function encodeCursor(createdAt: Date, id: string): string {
+  const payload = JSON.stringify({ c: createdAt.toISOString(), i: id });
+  return Buffer.from(payload, "utf8").toString("base64");
+}
+
+function decodeCursor(raw: string): DecodedCursor {
+  try {
+    const json = Buffer.from(raw, "base64").toString("utf8");
+    const parsed = JSON.parse(json) as { c?: unknown; i?: unknown };
+    if (typeof parsed.c !== "string" || typeof parsed.i !== "string") {
+      throw new Error("missing fields");
+    }
+    const createdAt = new Date(parsed.c);
+    if (Number.isNaN(createdAt.getTime())) {
+      throw new Error("invalid date");
+    }
+    return { createdAt, id: parsed.i };
+  } catch {
+    throw new HttpError(400, "VALIDATION_ERROR", "Invalid cursor");
+  }
+}
 
 function requireDescription(raw: unknown): string {
   if (typeof raw !== "string" || raw.trim() === "") {
@@ -45,11 +87,63 @@ function groupByStatus(jobs: Array<Record<string, unknown>>) {
   return grouped;
 }
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
+
+function buildJobFilter(userId: string, query: ListJobsQuery): Record<string, unknown> {
+  const filter: Record<string, unknown> = { userId };
+  if (query.status) {
+    filter.status = query.status;
+  }
+  if (typeof query.minScore === "number") {
+    filter["matchAnalysis.finalScore"] = { $gte: query.minScore };
+  }
+  if (query.q) {
+    filter.$text = { $search: query.q };
+  }
+  return filter;
+}
+
 export async function getJobs(req: Request, res: Response, next: NextFunction) {
   try {
     const { userId } = requireUser(req);
-    const jobs = await JobModel.find({ userId }).sort({ createdAt: -1 }).lean();
-    return res.status(200).json(groupByStatus(jobs as Array<Record<string, unknown>>));
+    const query = (req.validated?.query ?? {}) as ListJobsQuery;
+    const view = query.view ?? "board";
+
+    const filter = buildJobFilter(userId, query);
+
+    if (view === "board") {
+      const jobs = await JobModel.find(filter).sort({ createdAt: -1 }).lean();
+      return res
+        .status(200)
+        .json(groupByStatus(jobs as Array<Record<string, unknown>>));
+    }
+
+    const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+    if (query.cursor) {
+      const { createdAt, id } = decodeCursor(query.cursor);
+      filter.$or = [
+        { createdAt: { $lt: createdAt } },
+        { createdAt, _id: { $lt: asObjectId(id) } },
+      ];
+    }
+
+    const docs = await JobModel.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = docs.length > limit;
+    const items = hasMore ? docs.slice(0, limit) : docs;
+    const last = items[items.length - 1] as
+      | { createdAt?: Date; _id?: unknown }
+      | undefined;
+    const nextCursor =
+      hasMore && last?.createdAt
+        ? encodeCursor(last.createdAt, String(last._id))
+        : null;
+
+    return res.status(200).json({ items, nextCursor });
   } catch (err) {
     return next(err);
   }
