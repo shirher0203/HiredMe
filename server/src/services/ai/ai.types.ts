@@ -172,3 +172,46 @@ export interface ResumeAwareSemanticMatchAiResponse
   resumeInsights?: string[];
   matchingEvidence?: string[];
 }
+
+/**
+ * One answered question inside a completed interview attempt.
+ * Consumed by `summarizeInterviewAttempt`.
+ */
+export interface AttemptAnswerInput {
+  readonly questionId: string;
+  readonly question: string;
+  readonly userAnswer: string;
+  readonly evaluation: AnswerEvaluation;
+}
+
+/**
+ * Input to `summarizeInterviewAttempt`.
+ *
+ * `overallScore` is optional. If provided it overrides any AI- or
+ * average-derived score. If absent, the service computes the mean of
+ * `answers[].evaluation.score`.
+ */
+export interface SummarizeAttemptInput {
+  readonly interviewType: InterviewType;
+  readonly answers: AttemptAnswerInput[];
+  readonly overallScore?: number;
+  readonly jobTitle?: string;
+  readonly profileSkills?: string[];
+}
+
+/**
+ * Structured summary of a finished interview attempt.
+ *
+ * Produced by `summarizeInterviewAttempt`. Persistable as-is on the
+ * user's interview history record. All numeric fields are clamped to
+ * 0-100 and rounded to integers inside `ai.service.ts` before being
+ * returned.
+ */
+export interface InterviewAttemptSummary {
+  summary: string;
+  overallScore: number;
+  preserve_points: string[];
+  improve_points: string[];
+  topics_covered: string[];
+  overall_feedback: string;
+}

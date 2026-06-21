@@ -29,6 +29,8 @@ import type {
   EvaluateHomeAssignmentInput,
   GithubRepoAnalysis,
   AnalyzeGithubRepoInput,
+  SummarizeAttemptInput,
+  InterviewAttemptSummary,
 } from "./ai.types";
 import type {
   ParsedResume,
@@ -64,6 +66,7 @@ import {
   buildEvaluateAnswerPrompt,
   buildEvaluateHomeAssignmentPrompt,
   buildAnalyzeGithubRepoPrompt,
+  buildSummarizeAttemptPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
 import { normalizeSkills } from "../matching/skills-normalizer";
@@ -82,6 +85,7 @@ import {
   mockParsedResume,
   mockHomeAssignmentEvaluation,
   mockGithubRepoAnalysis,
+  mockInterviewAttemptSummary,
 } from "./mock-ai.responses";
 
 // ---------------------------------------------------------------------------
@@ -896,6 +900,129 @@ function validateHomeAssignmentEvaluation(
   };
 }
 
+const ATTEMPT_SUMMARY_KEYS = [
+  "summary",
+  "overallScore",
+  "preserve_points",
+  "improve_points",
+  "topics_covered",
+  "overall_feedback",
+] as const;
+
+function validateBoundedString(
+  value: unknown,
+  fieldName: string,
+  fn: string,
+  min: number,
+  max: number
+): string {
+  const s = requireString(value, fieldName, fn).trim();
+  if (s.length < min || s.length > max) {
+    throw new Error(
+      `${fn}: field '${fieldName}' must be ${min}-${max} chars (received ${s.length})`
+    );
+  }
+  return s;
+}
+
+function normalizeBoundedStringArray(
+  value: unknown,
+  fieldName: string,
+  fn: string,
+  minLen: number,
+  maxLen: number,
+  itemMin: number,
+  itemMax: number
+): string[] {
+  const arr = requireArray(value, fieldName, fn);
+  const out: string[] = [];
+  for (const raw of arr) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed.length < itemMin || trimmed.length > itemMax) continue;
+    out.push(trimmed);
+  }
+  if (out.length < minLen) {
+    throw new Error(
+      `${fn}: field '${fieldName}' must have at least ${minLen} valid entr${minLen === 1 ? "y" : "ies"} (got ${out.length})`
+    );
+  }
+  return out.slice(0, maxLen);
+}
+
+function normalizeTopicsArray(value: unknown, fn: string): string[] {
+  const arr = requireArray(value, "topics_covered", fn);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of arr) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed === "") continue;
+    const lower = trimmed.toLowerCase();
+    if (lower.length > 60) continue;
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(lower);
+    if (out.length >= 15) break;
+  }
+  return out;
+}
+
+function validateInterviewAttemptSummary(
+  raw: string
+): InterviewAttemptSummary {
+  const fn = "summarizeInterviewAttempt";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  if (!isPlainObject(parsed)) {
+    throw new Error(`${fn}: top-level value is not an object`);
+  }
+  for (const key of ATTEMPT_SUMMARY_KEYS) {
+    if (!(key in parsed)) {
+      throw new Error(`${fn}: missing required top-level key '${key}'`);
+    }
+  }
+
+  const summary = validateBoundedString(parsed.summary, "summary", fn, 50, 800);
+  const overallScore = clampScore(
+    toNumberScore(parsed.overallScore, "overallScore", fn)
+  );
+  const preserve = normalizeBoundedStringArray(
+    parsed.preserve_points,
+    "preserve_points",
+    fn,
+    1,
+    2,
+    10,
+    200
+  );
+  const improve = normalizeBoundedStringArray(
+    parsed.improve_points,
+    "improve_points",
+    fn,
+    1,
+    2,
+    10,
+    200
+  );
+  const topics = normalizeTopicsArray(parsed.topics_covered, fn);
+  const feedback = validateBoundedString(
+    parsed.overall_feedback,
+    "overall_feedback",
+    fn,
+    20,
+    300
+  );
+
+  return {
+    summary,
+    overallScore,
+    preserve_points: preserve,
+    improve_points: improve,
+    topics_covered: topics,
+    overall_feedback: feedback,
+  };
+}
+
 function validateGithubRepoAnalysis(raw: string): GithubRepoAnalysis {
   const fn = "analyzeGithubRepo";
   const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
@@ -1146,6 +1273,89 @@ export async function analyzeGithubRepo(
     prompt,
     validateGithubRepoAnalysis
   );
+}
+
+function validateAttemptInput(input: SummarizeAttemptInput): void {
+  const fn = "summarizeInterviewAttempt";
+  if (!input || typeof input !== "object") {
+    throw new Error(`${fn}: input is required`);
+  }
+  if (input.interviewType !== "hr" && input.interviewType !== "technical") {
+    throw new Error(
+      `${fn}: interviewType must be one of [hr, technical] (received ${JSON.stringify(input.interviewType)})`
+    );
+  }
+  if (!Array.isArray(input.answers) || input.answers.length === 0) {
+    throw new Error(`${fn}: answers must be a non-empty array`);
+  }
+  for (let i = 0; i < input.answers.length; i++) {
+    const a = input.answers[i];
+    if (!a || typeof a !== "object") {
+      throw new Error(`${fn}: answers[${i}] is not an object`);
+    }
+    if (typeof a.questionId !== "string" || a.questionId.trim() === "") {
+      throw new Error(`${fn}: answers[${i}].questionId must be a non-empty string`);
+    }
+    if (typeof a.question !== "string" || a.question.trim() === "") {
+      throw new Error(`${fn}: answers[${i}].question must be a non-empty string`);
+    }
+    if (typeof a.userAnswer !== "string" || a.userAnswer.trim() === "") {
+      throw new Error(`${fn}: answers[${i}].userAnswer must be a non-empty string`);
+    }
+    const ev = a.evaluation;
+    if (!ev || typeof ev !== "object") {
+      throw new Error(`${fn}: answers[${i}].evaluation must be an object`);
+    }
+    for (const k of ["score", "clarity", "correctness", "depth"] as const) {
+      if (typeof ev[k] !== "number" || !Number.isFinite(ev[k])) {
+        throw new Error(
+          `${fn}: answers[${i}].evaluation.${k} must be a finite number`
+        );
+      }
+    }
+  }
+}
+
+function computeAverageScore(input: SummarizeAttemptInput): number {
+  const sum = input.answers.reduce((acc, a) => acc + a.evaluation.score, 0);
+  return Math.round(sum / input.answers.length);
+}
+
+export async function summarizeInterviewAttempt(
+  input: SummarizeAttemptInput
+): Promise<InterviewAttemptSummary> {
+  validateAttemptInput(input);
+
+  return instrument("summarizeInterviewAttempt", async (ctx) => {
+    const averageScore = computeAverageScore(input);
+    const resolvedScore = clampScore(
+      typeof input.overallScore === "number"
+        ? input.overallScore
+        : averageScore
+    );
+
+    if (isMockMode()) {
+      return { ...mockInterviewAttemptSummary, overallScore: resolvedScore };
+    }
+
+    const prompt = buildSummarizeAttemptPrompt({
+      interviewType: input.interviewType,
+      answers: input.answers,
+      computedAverageScore: averageScore,
+      jobTitle: input.jobTitle,
+      profileSkills: input.profileSkills,
+    });
+    ctx.recordPrompt(prompt);
+
+    const summary = await withOneRetry<InterviewAttemptSummary>(
+      "summarizeInterviewAttempt",
+      prompt,
+      validateInterviewAttemptSummary,
+      ctx.recordOutput
+    );
+
+    return { ...summary, overallScore: resolvedScore };
+  });
 }
 
 export async function parseResume(resumeText: string): Promise<ParsedResume> {

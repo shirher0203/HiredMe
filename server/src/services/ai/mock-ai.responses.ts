@@ -13,6 +13,7 @@ import type {
   ResumeAwareSemanticMatchAiResponse,
   HomeAssignmentEvaluation,
   GithubRepoAnalysis,
+  InterviewAttemptSummary,
 } from "./ai.types";
 import type { JobAnalysis } from "../matching/matching.types";
 import type { ParsedResume } from "./parsed-resume.types";
@@ -251,6 +252,30 @@ export const mockGithubRepoAnalysis: GithubRepoAnalysis = {
     "A few endpoints lack input validation.",
   ],
   detectedStack: ["typescript", "node", "express", "react", "mongodb"],
+};
+
+export const mockInterviewAttemptSummary: InterviewAttemptSummary = {
+  summary:
+    "Across the technical session the candidate showed solid grounding in React and Node fundamentals and was able to walk through reconciliation, async error handling, and TypeScript narrowing with concrete examples. Depth was the weakest dimension — answers were correct but rarely went into trade-offs, alternative designs, or failure modes. Pacing and clarity were consistent throughout.",
+  overallScore: 76,
+  preserve_points: [
+    "Continue using small, concrete code examples to ground each explanation.",
+    "Keep the calm pacing and structured framing — it makes the answers easy to follow.",
+  ],
+  improve_points: [
+    "Push answers one layer deeper: name a trade-off, failure mode, or alternative design after the main explanation.",
+    "Tie each answer back to the question's expected focus in the closing sentence.",
+  ],
+  topics_covered: [
+    "react",
+    "node",
+    "typescript",
+    "mongodb",
+    "error-handling",
+    "behavioral",
+  ],
+  overall_feedback:
+    "A well-rounded junior-level performance. Closing the depth gap by routinely calling out a trade-off or edge case would meaningfully raise the score.",
 };
 
 export const mockAnswerEvaluation: AnswerEvaluation = {
