@@ -1,5 +1,5 @@
 import { type FormEvent, useId, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   login,
   register,
@@ -8,6 +8,11 @@ import {
 } from "../services/auth";
 
 type AuthMode = "login" | "register";
+
+interface AuthRedirectState {
+  from?: string;
+  matchResult?: unknown;
+}
 
 function getAuthMode(raw: string | undefined): AuthMode {
   return raw === "register" ? "register" : "login";
@@ -35,6 +40,7 @@ function validateAuth(input: AuthInput, mode: AuthMode): string | null {
 export function AuthPage() {
   const formId = useId();
   const navigate = useNavigate();
+  const location = useLocation();
   const params = useParams();
   const mode = getAuthMode(params.mode);
   const emailId = `${formId}-email`;
@@ -104,7 +110,13 @@ export function AuthPage() {
       const session =
         mode === "register" ? await register(input) : await login(input);
       saveAuthSession(session);
-      navigate("/match", { replace: true });
+      const redirect = location.state as AuthRedirectState | null;
+      const destination = redirect?.from ?? "/match";
+      if (redirect?.matchResult !== undefined) {
+        navigate(destination, { replace: true, state: redirect.matchResult });
+      } else {
+        navigate(destination, { replace: true });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed.");
     } finally {

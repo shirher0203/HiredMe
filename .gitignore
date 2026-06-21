@@ -54,6 +54,7 @@ temp/
 
 # Project planning docs
 PROJECT_PLAN*.md
+BACKEND_ROLE4_TASKS.md
 
 # Workspace-specific dependencies and builds
 server/node_modules/

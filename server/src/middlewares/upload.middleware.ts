@@ -19,3 +19,17 @@ export const upload = multer({
     return callback(null, true);
   },
 });
+
+const MAX_ASSIGNMENT_SIZE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Uploader for home-assignment submissions. Unlike `upload` it accepts any
+ * file type (code files, plain text, or PDF) since assignments are not
+ * limited to PDFs. Text extraction is handled in the controller.
+ */
+export const uploadAssignment = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_ASSIGNMENT_SIZE_BYTES,
+  },
+});

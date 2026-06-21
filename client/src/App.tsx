@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
+import { ApplicationsBoardPage } from "./pages/ApplicationsBoardPage";
 import { AuthPage } from "./pages/AuthPage";
 import { FitPreviewPage } from "./pages/FitPreviewPage";
 import { InterviewPage } from "./pages/InterviewPage";
@@ -16,6 +17,7 @@ export function App() {
           <Route path="match/result" element={<MatchResultPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="interview" element={<InterviewPage />} />
+          <Route path="applications" element={<ApplicationsBoardPage />} />
           <Route path="auth/:mode" element={<AuthPage />} />
           <Route path="login" element={<Navigate to="/auth/login" replace />} />
           <Route

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { JobModel } from "../models/job.model";
+import { JOB_SOURCES, JOB_STATUSES, JobModel, type JobSource, type JobStatus } from "../models/job.model";
 import { UserModel } from "../models/user.model";
 import { HttpError } from "../utils/http-error";
 import { requireUser, asObjectId, requireIdParam } from "./controller-utils";
@@ -7,8 +7,43 @@ import { analyzeJob, calculateMatch } from "../services/ai/ai.service";
 import { hashPayload } from "../utils/hash";
 import type { JobAnalysis } from "../services/matching/matching.types";
 
-const VALID_STATUSES = ["to_apply", "applied", "hr", "technical", "offer"] as const;
-type JobStatus = (typeof VALID_STATUSES)[number];
+export const VALID_STATUSES = JOB_STATUSES;
+
+interface ListJobsQuery {
+  view?: "board" | "list";
+  q?: string;
+  status?: JobStatus;
+  minScore?: number;
+  limit?: number;
+  cursor?: string;
+}
+
+interface DecodedCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function encodeCursor(createdAt: Date, id: string): string {
+  const payload = JSON.stringify({ c: createdAt.toISOString(), i: id });
+  return Buffer.from(payload, "utf8").toString("base64");
+}
+
+function decodeCursor(raw: string): DecodedCursor {
+  try {
+    const json = Buffer.from(raw, "base64").toString("utf8");
+    const parsed = JSON.parse(json) as { c?: unknown; i?: unknown };
+    if (typeof parsed.c !== "string" || typeof parsed.i !== "string") {
+      throw new Error("missing fields");
+    }
+    const createdAt = new Date(parsed.c);
+    if (Number.isNaN(createdAt.getTime())) {
+      throw new Error("invalid date");
+    }
+    return { createdAt, id: parsed.i };
+  } catch {
+    throw new HttpError(400, "VALIDATION_ERROR", "Invalid cursor");
+  }
+}
 
 function requireDescription(raw: unknown): string {
   if (typeof raw !== "string" || raw.trim() === "") {
@@ -22,6 +57,51 @@ function deriveTitle(description: string): string {
   return firstLine.slice(0, 80) || "Untitled job";
 }
 
+function optionalTrimmedString(raw: unknown, field: string): string | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "VALIDATION_ERROR", `${field} must be a string`);
+  }
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function optionalSource(raw: unknown): JobSource | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "string" || !JOB_SOURCES.includes(raw as JobSource)) {
+    throw new HttpError(400, "VALIDATION_ERROR", "Invalid source");
+  }
+  return raw as JobSource;
+}
+
+function optionalStatus(raw: unknown): JobStatus | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  return requireStatus(raw);
+}
+
+function serializeJob(job: Record<string, unknown>) {
+  return {
+    id: String(job._id),
+    title: job.title,
+    company: job.company ?? null,
+    description: job.description,
+    status: job.status,
+    notes: job.notes ?? null,
+    contact: job.contact ?? null,
+    jobUrl: job.jobUrl ?? null,
+    source: job.source ?? "manual",
+    matchAnalysis: job.matchAnalysis ?? null,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
 function requireStatus(raw: unknown): JobStatus {
   if (typeof raw !== "string" || !VALID_STATUSES.includes(raw as JobStatus)) {
     throw new HttpError(400, "VALIDATION_ERROR", "Invalid status");
@@ -29,27 +109,85 @@ function requireStatus(raw: unknown): JobStatus {
   return raw as JobStatus;
 }
 
+function normalizeStatus(raw: unknown): JobStatus {
+  if (raw === "to_apply") {
+    return "applied";
+  }
+  if (typeof raw === "string" && VALID_STATUSES.includes(raw as JobStatus)) {
+    return raw as JobStatus;
+  }
+  return "applied";
+}
+
 function groupByStatus(jobs: Array<Record<string, unknown>>) {
-  const grouped: Record<JobStatus, Array<Record<string, unknown>>> = {
-    to_apply: [],
-    applied: [],
-    hr: [],
-    technical: [],
-    offer: [],
-  };
+  const grouped = Object.fromEntries(
+    VALID_STATUSES.map((status) => [status, [] as Array<Record<string, unknown>>])
+  ) as Record<JobStatus, Array<Record<string, unknown>>>;
 
   for (const job of jobs) {
-    const status = (job.status as JobStatus) ?? "to_apply";
+    const status = normalizeStatus(job.status);
     grouped[status].push(job);
   }
   return grouped;
 }
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
+
+function buildJobFilter(userId: string, query: ListJobsQuery): Record<string, unknown> {
+  const filter: Record<string, unknown> = { userId };
+  if (query.status) {
+    filter.status = query.status;
+  }
+  if (typeof query.minScore === "number") {
+    filter["matchAnalysis.finalScore"] = { $gte: query.minScore };
+  }
+  if (query.q) {
+    filter.$text = { $search: query.q };
+  }
+  return filter;
+}
+
 export async function getJobs(req: Request, res: Response, next: NextFunction) {
   try {
     const { userId } = requireUser(req);
-    const jobs = await JobModel.find({ userId }).sort({ createdAt: -1 }).lean();
-    return res.status(200).json(groupByStatus(jobs as Array<Record<string, unknown>>));
+    const query = (req.validated?.query ?? {}) as ListJobsQuery;
+    const view = query.view ?? "board";
+
+    const filter = buildJobFilter(userId, query);
+
+    if (view === "board") {
+      const jobs = await JobModel.find(filter).sort({ createdAt: -1 }).lean();
+      return res
+        .status(200)
+        .json(groupByStatus(jobs as Array<Record<string, unknown>>));
+    }
+
+    const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+    if (query.cursor) {
+      const { createdAt, id } = decodeCursor(query.cursor);
+      filter.$or = [
+        { createdAt: { $lt: createdAt } },
+        { createdAt, _id: { $lt: asObjectId(id) } },
+      ];
+    }
+
+    const docs = await JobModel.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = docs.length > limit;
+    const items = hasMore ? docs.slice(0, limit) : docs;
+    const last = items[items.length - 1] as
+      | { createdAt?: Date; _id?: unknown }
+      | undefined;
+    const nextCursor =
+      hasMore && last?.createdAt
+        ? encodeCursor(last.createdAt, String(last._id))
+        : null;
+
+    return res.status(200).json({ items, nextCursor });
   } catch (err) {
     return next(err);
   }
@@ -63,20 +201,86 @@ export async function createJob(req: Request, res: Response, next: NextFunction)
       typeof req.body?.title === "string" && req.body.title.trim() !== ""
         ? req.body.title.trim()
         : deriveTitle(description);
+    const status = optionalStatus(req.body?.status) ?? "applied";
 
     const job = await JobModel.create({
       userId: asObjectId(userId),
       title,
+      company: optionalTrimmedString(req.body?.company, "company"),
       description,
-      status: "to_apply",
+      status,
+      notes: optionalTrimmedString(req.body?.notes, "notes"),
+      contact: optionalTrimmedString(req.body?.contact, "contact"),
+      jobUrl: optionalTrimmedString(req.body?.jobUrl, "jobUrl"),
+      source: optionalSource(req.body?.source) ?? "manual",
     });
 
-    return res.status(201).json({
-      id: String(job._id),
-      title: job.title,
-      description: job.description,
-      status: job.status,
-    });
+    return res.status(201).json(serializeJob(job.toObject() as Record<string, unknown>));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function patchJob(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = requireUser(req);
+    const jobId = requireIdParam(req.params.id);
+    const body = req.body ?? {};
+    const updates: Record<string, unknown> = {};
+
+    if ("title" in body) {
+      const title = optionalTrimmedString(body.title, "title");
+      if (!title) {
+        throw new HttpError(400, "VALIDATION_ERROR", "title cannot be empty");
+      }
+      updates.title = title;
+    }
+    if ("description" in body) {
+      updates.description = requireDescription(body.description);
+    }
+    if ("company" in body) {
+      updates.company = optionalTrimmedString(body.company, "company") ?? null;
+    }
+    if ("notes" in body) {
+      updates.notes = optionalTrimmedString(body.notes, "notes") ?? null;
+    }
+    if ("contact" in body) {
+      updates.contact = optionalTrimmedString(body.contact, "contact") ?? null;
+    }
+    if ("jobUrl" in body) {
+      updates.jobUrl = optionalTrimmedString(body.jobUrl, "jobUrl") ?? null;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      throw new HttpError(400, "VALIDATION_ERROR", "At least one field is required");
+    }
+
+    const job = await JobModel.findOneAndUpdate(
+      { _id: asObjectId(jobId), userId: asObjectId(userId) },
+      { $set: updates },
+      { returnDocument: "after" }
+    ).lean();
+    if (!job) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    return res.status(200).json(serializeJob(job as Record<string, unknown>));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function deleteJob(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = requireUser(req);
+    const jobId = requireIdParam(req.params.id);
+    const job = await JobModel.findOneAndDelete({
+      _id: asObjectId(jobId),
+      userId,
+    }).lean();
+    if (!job) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    return res.status(200).json({ id: String(job._id) });
   } catch (err) {
     return next(err);
   }
@@ -88,14 +292,14 @@ export async function patchJobStatus(req: Request, res: Response, next: NextFunc
     const status = requireStatus(req.body?.status);
     const jobId = requireIdParam(req.params.id);
     const job = await JobModel.findOneAndUpdate(
-      { _id: asObjectId(jobId), userId },
+      { _id: asObjectId(jobId), userId: asObjectId(userId) },
       { $set: { status } },
-      { new: true }
+      { returnDocument: "after" }
     ).lean();
     if (!job) {
       throw new HttpError(404, "NOT_FOUND", "Job not found");
     }
-    return res.status(200).json(job);
+    return res.status(200).json(serializeJob(job as Record<string, unknown>));
   } catch (err) {
     return next(err);
   }

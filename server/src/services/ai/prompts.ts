@@ -320,7 +320,14 @@ export function buildParseResumePrompt(resumeText: string): string {
   "parsed_metadata": {
     "language_detected": "en" | "he" | "mixed" | "other" | null,
     "years_of_experience_estimate": number
-  }
+  },
+  "suggested_skills": [
+    {
+      "skill": string,
+      "reason": string,
+      "confidence": number (0-100)
+    }
+  ]
 }`;
 
   const rules = [
@@ -334,6 +341,20 @@ export function buildParseResumePrompt(resumeText: string): string {
     "Do NOT add any fields beyond those listed in the schema.",
     "parsed_metadata.years_of_experience_estimate must be a non-negative number.",
     'parsed_metadata.language_detected must be one of "en", "he", "mixed", "other", or null.',
+    "",
+    "suggested_skills rules:",
+    "This is a RECOMMENDATION list, not a verified skills list. Prioritize recall over precision.",
+    "The user reviews and approves each entry manually on a follow-up screen, so over-suggesting is the desired failure mode. Missing relevant skills is the failure mode to avoid.",
+    "If the resume strongly indicates a software role, return a long ranked list of potentially relevant skills even when individual confidence is only moderate.",
+    "Target: 50+ entries whenever the resume has enough signal. For typical software-engineering resumes, prefer 75-100 entries.",
+    "Each entry is a skill the candidate likely knows but did NOT list explicitly anywhere in skills.technical_skills, skills.tools_and_software, or projects[].technologies_used.",
+    "Do NOT repeat any skill that already appears in those three places (case-insensitive).",
+    "Cover adjacent technologies, tools, frameworks, methodologies, languages, cloud / DevOps, testing, observability, and concepts that are commonly paired with what the candidate already knows. Include lower-confidence adjacent skills near the bottom of the list rather than omitting them.",
+    'skill: short canonical name in lowercase (e.g. "react", "docker", "graphql"). Single token or hyphenated. No version numbers, no marketing names.',
+    'reason: one short sentence (10-200 chars) explaining why this is a likely skill (e.g. "commonly used together with React in modern frontend stacks").',
+    "confidence: integer between 0 and 100 that reflects certainty. Higher = stronger evidence from the resume. Lower-confidence entries (e.g. 30-60) are expected and welcome — do not stop after only high-confidence suggestions.",
+    "Sort the array by confidence descending. Keep emitting until the list is exhausted, not after a quality cutoff.",
+    "Only return an empty array when the resume contains too little signal to suggest anything reasonable.",
   ].join("\n");
 
   const truncated = resumeText.length > RESUME_MAX_CHARS;
@@ -353,6 +374,211 @@ export function buildParseResumePrompt(resumeText: string): string {
     "",
     "Resume text:",
     body,
+  ].join("\n");
+}
+
+export interface SummarizeAttemptPromptInput {
+  readonly interviewType: "hr" | "technical";
+  readonly answers: ReadonlyArray<{
+    readonly questionId: string;
+    readonly question: string;
+    readonly userAnswer: string;
+    readonly evaluation: {
+      readonly score: number;
+      readonly clarity: number;
+      readonly correctness: number;
+      readonly depth: number;
+      readonly feedback: string;
+      readonly improvementTips: string[];
+    };
+  }>;
+  readonly computedAverageScore: number | null;
+  readonly jobTitle?: string;
+  readonly profileSkills?: string[];
+}
+
+const ATTEMPT_ANSWER_MAX_CHARS = 2000;
+
+export function buildSummarizeAttemptPrompt(
+  input: SummarizeAttemptPromptInput
+): string {
+  const schema = `{
+  "summary": string,
+  "overallScore": number (0-100),
+  "preserve_points": string[],
+  "improve_points": string[],
+  "topics_covered": string[],
+  "overall_feedback": string
+}`;
+
+  const rules = [
+    `summary: 50-800 character paragraph describing how the candidate performed across the ${input.interviewType} interview. Synthesize across all answers; do NOT copy per-answer evaluation feedback verbatim.`,
+    "overallScore: integer in 0-100. Reflect the candidate's overall performance across all answers, weighted by importance.",
+    "preserve_points: 1-2 short strings (10-200 chars each) — concrete things the candidate should keep doing.",
+    "improve_points: 1-2 short strings (10-200 chars each) — concrete things the candidate should work on.",
+    "topics_covered: 0-15 short topic tags (1-60 chars each), lowercase and deduped.",
+    "overall_feedback: 20-300 character closing note addressed to the candidate.",
+    "Do not invent topics the candidate did not answer about. Do not repeat the same point in both preserve_points and improve_points.",
+  ].join("\n");
+
+  const answerLines: string[] = [];
+  for (let i = 0; i < input.answers.length; i++) {
+    const a = input.answers[i];
+    const truncated = a.userAnswer.length > ATTEMPT_ANSWER_MAX_CHARS;
+    const body = truncated
+      ? `[truncated to ${ATTEMPT_ANSWER_MAX_CHARS} chars]\n${a.userAnswer.slice(
+          0,
+          ATTEMPT_ANSWER_MAX_CHARS
+        )}`
+      : a.userAnswer;
+    answerLines.push(
+      `--- Answer ${i + 1} (${a.questionId}) ---`,
+      `Question: ${a.question}`,
+      `Candidate answer: ${body}`,
+      `Evaluation: score=${a.evaluation.score}, clarity=${a.evaluation.clarity}, correctness=${a.evaluation.correctness}, depth=${a.evaluation.depth}.`,
+      `Evaluation feedback: ${a.evaluation.feedback}`
+    );
+  }
+
+  const contextLines: string[] = [];
+  if (input.jobTitle) contextLines.push(`Target role: ${input.jobTitle}`);
+  if (input.profileSkills && input.profileSkills.length > 0) {
+    contextLines.push(
+      formatStringList("Candidate skills", input.profileSkills)
+    );
+  }
+  if (input.computedAverageScore !== null) {
+    contextLines.push(
+      `Computed average score across answers: ${input.computedAverageScore}`
+    );
+  }
+
+  return [
+    SYSTEM_HEADER,
+    "",
+    `Task: summarize the candidate's performance on a completed ${input.interviewType} interview with ${input.answers.length} answered question(s).`,
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    rules,
+    "",
+    ...contextLines,
+    "",
+    ...answerLines,
+  ].join("\n");
+}
+
+export interface EvaluateHomeAssignmentPromptInput {
+  readonly code: string;
+  readonly language?: string;
+  readonly jobContext?: string;
+}
+
+const HOME_ASSIGNMENT_MAX_CHARS = 20000;
+
+export function buildEvaluateHomeAssignmentPrompt(
+  input: EvaluateHomeAssignmentPromptInput
+): string {
+  // TODO(role3): prompt tuning — member 3 will calibrate the scoring rubric
+  // and wording later. Keep the JSON schema and field names stable so the
+  // validator in ai.service.ts does not need to change.
+  const schema = `{
+  "score": number (0-100),
+  "summary": string,
+  "strengths": string[],
+  "improvements": string[]
+}`;
+
+  const truncated = input.code.length > HOME_ASSIGNMENT_MAX_CHARS;
+  const code = truncated
+    ? `[truncated to ${HOME_ASSIGNMENT_MAX_CHARS} chars]\n${input.code.slice(
+        0,
+        HOME_ASSIGNMENT_MAX_CHARS
+      )}`
+    : input.code;
+
+  const lines = [
+    SYSTEM_HEADER,
+    "",
+    "Task: evaluate the candidate's home assignment code submission below.",
+    "Score overall quality (correctness, readability, structure, and best practices).",
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    '"score" must be a number between 0 and 100 (inclusive). Do not use a percentage string.',
+    '"strengths" and "improvements" must contain strings only — 2 or 3 concrete items each.',
+    "",
+  ];
+  if (input.language) {
+    lines.push(`Programming language: ${input.language}`);
+  }
+  if (input.jobContext) {
+    lines.push(`Target role context: ${input.jobContext}`);
+  }
+  lines.push("", "Code submission:", code);
+  return lines.join("\n");
+}
+
+export interface AnalyzeGithubRepoPromptInput {
+  fullName: string;
+  description: string | null;
+  primaryLanguage: string | null;
+  languages: string[];
+  stars: number;
+  readme: string | null;
+  packageJson: string | null;
+}
+
+const GITHUB_README_MAX_CHARS = 8000;
+const GITHUB_PACKAGE_JSON_MAX_CHARS = 4000;
+
+export function buildAnalyzeGithubRepoPrompt(
+  input: AnalyzeGithubRepoPromptInput
+): string {
+  // TODO(role3): prompt tuning — member 3 will calibrate the rubric and
+  // wording later. Keep the JSON schema and field names stable so the
+  // validator in ai.service.ts does not need to change.
+  const schema = `{
+  "architectureSummary": string,
+  "codeQualityScore": number (0-100),
+  "strengths": string[],
+  "concerns": string[],
+  "detectedStack": string[]
+}`;
+
+  const readme =
+    input.readme && input.readme.length > GITHUB_README_MAX_CHARS
+      ? `${input.readme.slice(0, GITHUB_README_MAX_CHARS)}\n[truncated]`
+      : input.readme ?? "(no README)";
+  const packageJson =
+    input.packageJson && input.packageJson.length > GITHUB_PACKAGE_JSON_MAX_CHARS
+      ? `${input.packageJson.slice(0, GITHUB_PACKAGE_JSON_MAX_CHARS)}\n[truncated]`
+      : input.packageJson ?? "(no package.json)";
+
+  return [
+    SYSTEM_HEADER,
+    "",
+    "Task: analyze the GitHub repository below and assess its architecture and code quality.",
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    '"codeQualityScore" must be a number between 0 and 100 (inclusive).',
+    '"strengths", "concerns", and "detectedStack" must contain strings only.',
+    "",
+    `Repository: ${input.fullName}`,
+    `Description: ${input.description ?? "(none)"}`,
+    `Primary language: ${input.primaryLanguage ?? "(unknown)"}`,
+    formatStringList("Languages", input.languages),
+    `Stars: ${input.stars}`,
+    "",
+    "package.json:",
+    packageJson,
+    "",
+    "README:",
+    readme,
   ].join("\n");
 }
 
