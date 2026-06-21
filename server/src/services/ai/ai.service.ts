@@ -44,7 +44,14 @@ import type {
   ParsedResumeLanguageDetected,
 } from "./parsed-resume.types";
 
-import { callAi } from "./ai.client";
+import { callAi, getActiveModelName, isApiKeyConfigured } from "./ai.client";
+import {
+  logAiStart,
+  logAiSuccess,
+  logAiFailure,
+  logAiPromptPreview,
+  logAiOutputPreview,
+} from "./ai.logger";
 import { parseJsonFromAi } from "../../utils/safe-json";
 import {
   buildAnalyzeJobPrompt,
@@ -210,15 +217,20 @@ const RETRY_SUFFIX =
 async function withOneRetry<T>(
   functionName: string,
   prompt: string,
-  parseAndValidate: (raw: string) => T
+  parseAndValidate: (raw: string) => T,
+  onRawOutput?: (raw: string) => void
 ): Promise<T> {
   const rawFirst = await callAi(prompt);
   try {
-    return parseAndValidate(rawFirst);
+    const out = parseAndValidate(rawFirst);
+    if (onRawOutput) onRawOutput(rawFirst);
+    return out;
   } catch (firstErr) {
     const rawRetry = await callAi(prompt + RETRY_SUFFIX);
     try {
-      return parseAndValidate(rawRetry);
+      const out = parseAndValidate(rawRetry);
+      if (onRawOutput) onRawOutput(rawRetry);
+      return out;
     } catch (retryErr) {
       const firstMsg =
         firstErr instanceof Error ? firstErr.message : String(firstErr);
@@ -228,6 +240,75 @@ async function withOneRetry<T>(
         `${functionName}: retry failed — first error: ${firstMsg}; retry error: ${retryMsg}`
       );
     }
+  }
+}
+
+/**
+ * Wraps an exported AI service function with start/success/failure logs.
+ *
+ * The wrapper is the only place service-level logging lives — call sites
+ * just `return instrument("foo", () => impl())`. It also exposes a small
+ * context to the implementation so prompt/output previews can be emitted
+ * with consistent function names.
+ */
+interface InstrumentContext {
+  recordPrompt: (prompt: string) => void;
+  recordOutput: (rawOutput: string) => void;
+  setPromptChars: (n: number) => void;
+  setOutputChars: (n: number) => void;
+}
+
+async function instrument<T>(
+  functionName: string,
+  impl: (ctx: InstrumentContext) => Promise<T>
+): Promise<T> {
+  const mock = isMockMode();
+  const start = Date.now();
+  let promptChars: number | undefined;
+  let outputChars: number | undefined;
+
+  const ctx: InstrumentContext = {
+    recordPrompt: (prompt: string) => {
+      promptChars = prompt.length;
+      logAiPromptPreview(functionName, prompt);
+    },
+    recordOutput: (rawOutput: string) => {
+      outputChars = rawOutput.length;
+      logAiOutputPreview(functionName, rawOutput);
+    },
+    setPromptChars: (n: number) => {
+      promptChars = n;
+    },
+    setOutputChars: (n: number) => {
+      outputChars = n;
+    },
+  };
+
+  logAiStart({
+    functionName,
+    model: mock ? undefined : getActiveModelName(),
+    mock,
+    keyConfigured: isApiKeyConfigured(),
+  });
+
+  try {
+    const result = await impl(ctx);
+    logAiSuccess({
+      functionName,
+      durationMs: Date.now() - start,
+      promptChars,
+      outputChars,
+      mock,
+    });
+    return result;
+  } catch (err) {
+    logAiFailure({
+      functionName,
+      durationMs: Date.now() - start,
+      error: err,
+      mock,
+    });
+    throw err;
   }
 }
 
@@ -771,29 +852,37 @@ function validateGithubRepoAnalysis(raw: string): GithubRepoAnalysis {
 export async function analyzeProfile(
   profile: ProfileInput
 ): Promise<ProfileAnalysis> {
-  if (isMockMode()) {
-    return mockProfileAnalysis;
-  }
-  const prompt = buildAnalyzeProfilePrompt(profile);
-  return withOneRetry<ProfileAnalysis>(
-    "analyzeProfile",
-    prompt,
-    validateProfileAnalysis
-  );
+  return instrument("analyzeProfile", async (ctx) => {
+    if (isMockMode()) {
+      return mockProfileAnalysis;
+    }
+    const prompt = buildAnalyzeProfilePrompt(profile);
+    ctx.recordPrompt(prompt);
+    return withOneRetry<ProfileAnalysis>(
+      "analyzeProfile",
+      prompt,
+      validateProfileAnalysis,
+      ctx.recordOutput
+    );
+  });
 }
 
 export async function analyzeJob(
   jobDescription: string
 ): Promise<JobAnalysis> {
-  if (isMockMode()) {
-    return mockJobAnalysis;
-  }
-  const prompt = buildAnalyzeJobPrompt({ jobDescription });
-  return withOneRetry<JobAnalysis>(
-    "analyzeJob",
-    prompt,
-    validateJobAnalysis
-  );
+  return instrument("analyzeJob", async (ctx) => {
+    if (isMockMode()) {
+      return mockJobAnalysis;
+    }
+    const prompt = buildAnalyzeJobPrompt({ jobDescription });
+    ctx.recordPrompt(prompt);
+    return withOneRetry<JobAnalysis>(
+      "analyzeJob",
+      prompt,
+      validateJobAnalysis,
+      ctx.recordOutput
+    );
+  });
 }
 
 export async function calculateMatch(
@@ -801,33 +890,78 @@ export async function calculateMatch(
   jobAnalysis: JobAnalysis,
   resume?: ParsedResume
 ): Promise<MatchAnalysis> {
-  const rawProfileSkills = profile?.skills ?? [];
-  const requiredSkills = jobAnalysis?.requiredSkills ?? [];
-  const advantageSkills = jobAnalysis?.advantageSkills ?? [];
+  return instrument("calculateMatch", async (ctx) => {
+    const rawProfileSkills = profile?.skills ?? [];
+    const requiredSkills = jobAnalysis?.requiredSkills ?? [];
+    const advantageSkills = jobAnalysis?.advantageSkills ?? [];
 
-  if (!resume) {
-    const profileSkills = rawProfileSkills;
+    if (!resume) {
+      const profileSkills = rawProfileSkills;
+
+      if (isMockMode()) {
+        return buildDeterministicMatch(
+          profileSkills,
+          requiredSkills,
+          advantageSkills,
+          mockSemanticMatch.aiSemanticScore,
+          mockSemanticMatch.explanation
+        );
+      }
+
+      const prompt = buildSemanticMatchPrompt({
+        profileSkills,
+        requiredSkills,
+        advantageSkills,
+      });
+      ctx.recordPrompt(prompt);
+
+      const semantic = await withOneRetry<SemanticMatchAiResponse>(
+        "calculateMatch",
+        prompt,
+        validateSemanticMatch,
+        ctx.recordOutput
+      );
+
+      return buildDeterministicMatch(
+        profileSkills,
+        requiredSkills,
+        advantageSkills,
+        semantic.aiSemanticScore,
+        semantic.explanation
+      );
+    }
+
+    const enrichment = enrichFromResume(resume);
+    const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
 
     if (isMockMode()) {
       return buildDeterministicMatch(
         profileSkills,
         requiredSkills,
         advantageSkills,
-        mockSemanticMatch.aiSemanticScore,
-        mockSemanticMatch.explanation
+        mockResumeAwareSemanticMatch.aiSemanticScore,
+        mockResumeAwareSemanticMatch.explanation,
+        extractMatchExtras(mockResumeAwareSemanticMatch)
       );
     }
 
-    const prompt = buildSemanticMatchPrompt({
+    const prompt = buildResumeAwareSemanticMatchPrompt({
       profileSkills,
       requiredSkills,
       advantageSkills,
+      workExperienceSummary: enrichment.workExperienceSummary,
+      educationSummary: enrichment.educationSummary,
+      topProjectsSummary: enrichment.topProjectsSummary,
+      languagesSummary: enrichment.languagesSummary,
+      experienceYears: enrichment.experienceYears,
     });
+    ctx.recordPrompt(prompt);
 
-    const semantic = await withOneRetry<SemanticMatchAiResponse>(
+    const semantic = await withOneRetry<ResumeAwareSemanticMatchAiResponse>(
       "calculateMatch",
       prompt,
-      validateSemanticMatch
+      validateResumeAwareSemanticMatch,
+      ctx.recordOutput
     );
 
     return buildDeterministicMatch(
@@ -835,93 +969,62 @@ export async function calculateMatch(
       requiredSkills,
       advantageSkills,
       semantic.aiSemanticScore,
-      semantic.explanation
+      semantic.explanation,
+      extractMatchExtras(semantic)
     );
-  }
-
-  const enrichment = enrichFromResume(resume);
-  const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
-
-  if (isMockMode()) {
-    return buildDeterministicMatch(
-      profileSkills,
-      requiredSkills,
-      advantageSkills,
-      mockResumeAwareSemanticMatch.aiSemanticScore,
-      mockResumeAwareSemanticMatch.explanation,
-      extractMatchExtras(mockResumeAwareSemanticMatch)
-    );
-  }
-
-  const prompt = buildResumeAwareSemanticMatchPrompt({
-    profileSkills,
-    requiredSkills,
-    advantageSkills,
-    workExperienceSummary: enrichment.workExperienceSummary,
-    educationSummary: enrichment.educationSummary,
-    topProjectsSummary: enrichment.topProjectsSummary,
-    languagesSummary: enrichment.languagesSummary,
-    experienceYears: enrichment.experienceYears,
   });
-
-  const semantic = await withOneRetry<ResumeAwareSemanticMatchAiResponse>(
-    "calculateMatch",
-    prompt,
-    validateResumeAwareSemanticMatch
-  );
-
-  return buildDeterministicMatch(
-    profileSkills,
-    requiredSkills,
-    advantageSkills,
-    semantic.aiSemanticScore,
-    semantic.explanation,
-    extractMatchExtras(semantic)
-  );
 }
 
 export async function generateInterviewQuestions(
   input: GenerateQuestionsInput
 ): Promise<{ questions: InterviewQuestion[] }> {
-  if (isMockMode()) {
-    const sliced = mockInterviewQuestions.slice(0, Math.max(0, input.count));
-    return { questions: ensureQuestionIds(sliced) };
-  }
+  return instrument("generateInterviewQuestions", async (ctx) => {
+    if (isMockMode()) {
+      const sliced = mockInterviewQuestions.slice(0, Math.max(0, input.count));
+      return { questions: ensureQuestionIds(sliced) };
+    }
 
-  const prompt = buildGenerateQuestionsPrompt({
-    interviewType: input.interviewType,
-    profileSkills: input.profileSkills,
-    jobRequiredSkills: input.jobRequiredSkills,
-    count: input.count,
-    language: input.language,
+    const prompt = buildGenerateQuestionsPrompt({
+      interviewType: input.interviewType,
+      profileSkills: input.profileSkills,
+      jobRequiredSkills: input.jobRequiredSkills,
+      count: input.count,
+      language: input.language,
+    });
+    ctx.recordPrompt(prompt);
+
+    return withOneRetry<{ questions: InterviewQuestion[] }>(
+      "generateInterviewQuestions",
+      prompt,
+      validateQuestions,
+      ctx.recordOutput
+    );
   });
-
-  return withOneRetry<{ questions: InterviewQuestion[] }>(
-    "generateInterviewQuestions",
-    prompt,
-    validateQuestions
-  );
 }
 
 export async function evaluateAnswer(
   input: EvaluateAnswerInput
 ): Promise<AnswerEvaluation> {
-  if (isMockMode()) {
-    return mockAnswerEvaluation;
-  }
+  return instrument("evaluateAnswer", async (ctx) => {
+    if (isMockMode()) {
+      return mockAnswerEvaluation;
+    }
 
-  const prompt = buildEvaluateAnswerPrompt({
-    question: input.question,
-    expectedFocus: input.expectedFocus,
-    userAnswer: input.userAnswer,
-    interviewType: input.interviewType,
+    const prompt = buildEvaluateAnswerPrompt({
+      question: input.question,
+      expectedFocus: input.expectedFocus,
+      userAnswer: input.userAnswer,
+      interviewType: input.interviewType,
+    });
+    ctx.recordPrompt(prompt);
+
+    return withOneRetry<AnswerEvaluation>(
+      "evaluateAnswer",
+      prompt,
+      validateAnswerEvaluation,
+      ctx.recordOutput
+    );
   });
-
-  return withOneRetry<AnswerEvaluation>(
-    "evaluateAnswer",
-    prompt,
-    validateAnswerEvaluation
-  );
 }
 
 export async function evaluateHomeAssignment(
@@ -977,24 +1080,28 @@ export async function analyzeGithubRepo(
 }
 
 export async function parseResume(resumeText: string): Promise<ParsedResume> {
-  if (typeof resumeText !== "string" || resumeText.trim() === "") {
-    throw new Error("parseResume: resumeText must be a non-empty string");
-  }
+  return instrument("parseResume", async (ctx) => {
+    if (typeof resumeText !== "string" || resumeText.trim() === "") {
+      throw new Error("parseResume: resumeText must be a non-empty string");
+    }
 
-  const rawHash = sha256Hex(resumeText);
+    const rawHash = sha256Hex(resumeText);
 
-  if (isMockMode()) {
-    return { ...mockParsedResume, raw_text_hash: rawHash };
-  }
+    if (isMockMode()) {
+      return { ...mockParsedResume, raw_text_hash: rawHash };
+    }
 
-  const prompt = buildParseResumePrompt(resumeText);
-  const body = await withOneRetry<Omit<ParsedResume, "raw_text_hash">>(
-    "parseResume",
-    prompt,
-    validateParsedResume
-  );
+    const prompt = buildParseResumePrompt(resumeText);
+    ctx.recordPrompt(prompt);
+    const body = await withOneRetry<Omit<ParsedResume, "raw_text_hash">>(
+      "parseResume",
+      prompt,
+      validateParsedResume,
+      ctx.recordOutput
+    );
 
-  return { ...body, raw_text_hash: rawHash };
+    return { ...body, raw_text_hash: rawHash };
+  });
 }
 
 // ---------------------------------------------------------------------------

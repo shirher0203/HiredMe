@@ -12,6 +12,8 @@ import {
   type GenerativeModel,
 } from "@google/generative-ai";
 
+import { logAiClientCall, logAiClientError } from "./ai.logger";
+
 const DEFAULT_MODEL = "gemini-flash-lite-latest";
 const SYSTEM_INSTRUCTION =
   "You are a precise JSON API. Respond with valid JSON only.";
@@ -19,13 +21,22 @@ const SYSTEM_INSTRUCTION =
 let cachedModel: GenerativeModel | undefined;
 let cachedModelKey: string | undefined;
 
+export function getActiveModelName(): string {
+  return process.env.GEMINI_MODEL || DEFAULT_MODEL;
+}
+
+export function isApiKeyConfigured(): boolean {
+  const k = process.env.GEMINI_API_KEY;
+  return typeof k === "string" && k.trim() !== "";
+}
+
 function getModel(): GenerativeModel {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("Missing GEMINI_API_KEY");
   }
 
-  const modelName = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const modelName = getActiveModelName();
   const key = `${apiKey}::${modelName}`;
 
   if (cachedModel && cachedModelKey === key) {
@@ -49,13 +60,31 @@ export async function callAi(prompt: string): Promise<string> {
     throw new Error("AI client should not be called in mock mode");
   }
 
-  const model = getModel();
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
+  const modelName = getActiveModelName();
+  const start = Date.now();
 
-  if (!text || text.trim() === "") {
-    throw new Error("Empty response from AI Provider");
+  try {
+    const model = getModel();
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    if (!text || text.trim() === "") {
+      throw new Error("Empty response from AI Provider");
+    }
+
+    logAiClientCall({
+      model: modelName,
+      durationMs: Date.now() - start,
+      outputChars: text.length,
+    });
+
+    return text;
+  } catch (err) {
+    logAiClientError({
+      model: modelName,
+      durationMs: Date.now() - start,
+      error: err,
+    });
+    throw err;
   }
-
-  return text;
 }
