@@ -377,6 +377,98 @@ export function buildParseResumePrompt(resumeText: string): string {
   ].join("\n");
 }
 
+export interface SummarizeAttemptPromptInput {
+  readonly interviewType: "hr" | "technical";
+  readonly answers: ReadonlyArray<{
+    readonly questionId: string;
+    readonly question: string;
+    readonly userAnswer: string;
+    readonly evaluation: {
+      readonly score: number;
+      readonly clarity: number;
+      readonly correctness: number;
+      readonly depth: number;
+      readonly feedback: string;
+      readonly improvementTips: string[];
+    };
+  }>;
+  readonly computedAverageScore: number | null;
+  readonly jobTitle?: string;
+  readonly profileSkills?: string[];
+}
+
+const ATTEMPT_ANSWER_MAX_CHARS = 2000;
+
+export function buildSummarizeAttemptPrompt(
+  input: SummarizeAttemptPromptInput
+): string {
+  const schema = `{
+  "summary": string,
+  "overallScore": number (0-100),
+  "preserve_points": string[],
+  "improve_points": string[],
+  "topics_covered": string[],
+  "overall_feedback": string
+}`;
+
+  const rules = [
+    `summary: 50-800 character paragraph describing how the candidate performed across the ${input.interviewType} interview. Synthesize across all answers; do NOT copy per-answer evaluation feedback verbatim.`,
+    "overallScore: integer in 0-100. Reflect the candidate's overall performance across all answers, weighted by importance.",
+    "preserve_points: 1-2 short strings (10-200 chars each) — concrete things the candidate should keep doing.",
+    "improve_points: 1-2 short strings (10-200 chars each) — concrete things the candidate should work on.",
+    "topics_covered: 0-15 short topic tags (1-60 chars each), lowercase and deduped.",
+    "overall_feedback: 20-300 character closing note addressed to the candidate.",
+    "Do not invent topics the candidate did not answer about. Do not repeat the same point in both preserve_points and improve_points.",
+  ].join("\n");
+
+  const answerLines: string[] = [];
+  for (let i = 0; i < input.answers.length; i++) {
+    const a = input.answers[i];
+    const truncated = a.userAnswer.length > ATTEMPT_ANSWER_MAX_CHARS;
+    const body = truncated
+      ? `[truncated to ${ATTEMPT_ANSWER_MAX_CHARS} chars]\n${a.userAnswer.slice(
+          0,
+          ATTEMPT_ANSWER_MAX_CHARS
+        )}`
+      : a.userAnswer;
+    answerLines.push(
+      `--- Answer ${i + 1} (${a.questionId}) ---`,
+      `Question: ${a.question}`,
+      `Candidate answer: ${body}`,
+      `Evaluation: score=${a.evaluation.score}, clarity=${a.evaluation.clarity}, correctness=${a.evaluation.correctness}, depth=${a.evaluation.depth}.`,
+      `Evaluation feedback: ${a.evaluation.feedback}`
+    );
+  }
+
+  const contextLines: string[] = [];
+  if (input.jobTitle) contextLines.push(`Target role: ${input.jobTitle}`);
+  if (input.profileSkills && input.profileSkills.length > 0) {
+    contextLines.push(
+      formatStringList("Candidate skills", input.profileSkills)
+    );
+  }
+  if (input.computedAverageScore !== null) {
+    contextLines.push(
+      `Computed average score across answers: ${input.computedAverageScore}`
+    );
+  }
+
+  return [
+    SYSTEM_HEADER,
+    "",
+    `Task: summarize the candidate's performance on a completed ${input.interviewType} interview with ${input.answers.length} answered question(s).`,
+    "",
+    "Respond with a single JSON object that matches exactly this schema:",
+    schema,
+    "",
+    rules,
+    "",
+    ...contextLines,
+    "",
+    ...answerLines,
+  ].join("\n");
+}
+
 export interface EvaluateHomeAssignmentPromptInput {
   readonly code: string;
   readonly language?: string;

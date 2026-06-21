@@ -24,6 +24,7 @@ import {
   generateInterviewQuestions,
   evaluateAnswer,
   parseResume,
+  summarizeInterviewAttempt,
 } from "../src/services/ai/ai.service";
 import type { ProfileInput, JobAnalysis } from "../src/services/matching/matching.types";
 
@@ -173,10 +174,32 @@ async function main(): Promise<void> {
   );
   if (resumeAwareMatchStep.ok) passed++;
 
-  console.log("");
-  console.log(`${passed}/7 passed`);
+  const summarizeStep = await run("summarizeInterviewAttempt", async () => {
+    const firstQuestion = questionsStep.value?.questions?.[0];
+    const evaluation = evaluateStep.value;
+    if (!firstQuestion || !evaluation) {
+      throw new Error("prior steps did not produce a question + evaluation");
+    }
+    return summarizeInterviewAttempt({
+      interviewType: "technical",
+      jobTitle: jobAnalysis?.roleTitle,
+      profileSkills: PROFILE.skills,
+      answers: [
+        {
+          questionId: firstQuestion.id,
+          question: firstQuestion.question,
+          userAnswer: CANDIDATE_ANSWER,
+          evaluation,
+        },
+      ],
+    });
+  });
+  if (summarizeStep.ok) passed++;
 
-  process.exit(passed === 7 ? 0 : 1);
+  console.log("");
+  console.log(`${passed}/8 passed`);
+
+  process.exit(passed === 8 ? 0 : 1);
 }
 
 main();
