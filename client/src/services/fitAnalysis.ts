@@ -6,7 +6,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface AnalyzeFitPreviewInput {
   jobDescription: string;
-  resumeFile: File;
 }
 
 export interface AnalyzeFitPreviewResult {
@@ -33,14 +32,13 @@ function buildAuthHeaders(): HeadersInit {
 export async function analyzeFitPreview(
   input: AnalyzeFitPreviewInput
 ): Promise<AnalyzeFitPreviewResult> {
-  const formData = new FormData();
-  formData.append("jobDescription", input.jobDescription);
-  formData.append("file", input.resumeFile);
-
-  const response = await fetch(`${API_BASE_URL}/api/v1/cv/analyze-resume`, {
+  const response = await fetch(`${API_BASE_URL}/api/v1/cv/analyze-profile`, {
     method: "POST",
-    headers: buildAuthHeaders(),
-    body: formData,
+    headers: {
+      ...buildAuthHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ jobDescription: input.jobDescription }),
   });
 
   if (!response.ok) {

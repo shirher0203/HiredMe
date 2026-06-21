@@ -5,6 +5,8 @@ import { MatchFlowModel } from "../models/match-flow.model";
 import { extractTextFromBuffer } from "./pdf.service";
 import { sha256Hex } from "../utils/hash";
 import { HttpError } from "../utils/http-error";
+import { UserModel } from "../models/user.model";
+import { withAccountPersonalInfo } from "../utils/personal-info";
 import {
   analyzeJobForMatchFlow,
   calculateMatchForMatchFlow,
@@ -59,6 +61,10 @@ export async function runFullMatchFlowPipeline(params: {
   const resumeTextHash = sha256Hex(text);
 
   const userOid = new mongoose.Types.ObjectId(params.userId);
+  const user = await UserModel.findById(params.userId).lean();
+  if (!user) {
+    throw new HttpError(404, "NOT_FOUND", "User not found");
+  }
 
   const existing = await MatchFlowModel.findOne({
     userId: userOid,
@@ -82,7 +88,7 @@ export async function runFullMatchFlowPipeline(params: {
       pageCount: existing.resumePdfPageCount ?? pageCount,
       resumeTextHash,
       jobDescriptionHash,
-      parsedResume: existing.parsedResume as ParsedResume,
+      parsedResume: withAccountPersonalInfo(existing.parsedResume as ParsedResume, user),
       jobAnalysis: existing.jobAnalysis as JobAnalysis,
       matchReport: existing.matchReport as MatchAnalysis,
       pipelineCached: true,

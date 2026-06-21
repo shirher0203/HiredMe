@@ -1,4 +1,4 @@
-import type { ParsedResume } from "../services/ai/parsed-resume.types";
+import type { ParsedResume, ParsedResumePersonalInfo } from "../services/ai/parsed-resume.types";
 import type { JobAnalysis, MatchAnalysis } from "../services/matching/matching.types";
 
 export interface SuccessResponse<TData> {
@@ -19,6 +19,17 @@ export interface ExtractCvTextData {
   filename: string;
   pageCount: number;
   extractedText: string;
+}
+
+export interface ParseCvData {
+  parsedResume: ParsedResume;
+}
+
+export interface UserProfileData {
+  profile: ParsedResume | null;
+  personalInfo: ParsedResumePersonalInfo;
+  rawCvFileUrl: string | null;
+  updatedAt: Date | string | null;
 }
 
 export interface MatchFlowResumeUploadData {

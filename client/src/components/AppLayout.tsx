@@ -48,6 +48,14 @@ export function AppLayout() {
             >
               Interview
             </NavLink>
+            <NavLink
+              to="/profile"
+              className={({ isActive }) =>
+                `${linkClass} ${isActive ? activeClass : ""}`
+              }
+            >
+              Profile
+            </NavLink>
             {session ? (
               <button
                 type="button"

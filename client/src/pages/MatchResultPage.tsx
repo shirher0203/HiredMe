@@ -324,7 +324,7 @@ export function MatchResultPage() {
             to="/match"
             className="inline-flex rounded-xl bg-white px-5 py-3 text-sm font-semibold text-indigo-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
           >
-            Analyze another resume
+            Analyze another job
           </Link>
         </div>
 

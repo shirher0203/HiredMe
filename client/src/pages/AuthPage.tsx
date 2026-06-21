@@ -25,6 +25,9 @@ function validateAuth(input: AuthInput, mode: AuthMode): string | null {
   if (!input.email.includes("@")) {
     return "Enter a valid email address.";
   }
+  if (mode === "register" && !input.personalInfo?.fullName?.trim()) {
+    return "Enter your full name.";
+  }
   if (input.password.length < 6) {
     return "Password must be at least 6 characters.";
   }
@@ -45,6 +48,11 @@ export function AuthPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [location, setLocation] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [portfolioOrGithubUrl, setPortfolioOrGithubUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -76,9 +84,20 @@ export function AuthPage() {
     e.preventDefault();
     setError(null);
 
-    const input = {
+    const input: AuthInput = {
       email: email.trim().toLowerCase(),
       password,
+      ...(mode === "register"
+        ? {
+            personalInfo: {
+              fullName: fullName.trim(),
+              phone: phone.trim(),
+              location: location.trim(),
+              linkedinUrl: linkedinUrl.trim(),
+              portfolioOrGithubUrl: portfolioOrGithubUrl.trim(),
+            },
+          }
+        : {}),
     };
     const validationError = validateAuth(input, mode);
     if (validationError) {
@@ -148,6 +167,104 @@ export function AuthPage() {
 
           <form onSubmit={onSubmit} noValidate>
             <div className="space-y-5">
+              {mode === "register" ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Full name
+                    </label>
+                    <input
+                      name="fullName"
+                      type="text"
+                      autoComplete="name"
+                      value={fullName}
+                      onChange={(e) => {
+                        setFullName(e.target.value);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 shadow-inner outline-none ring-indigo-500/0 transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                      placeholder="Jane Candidate"
+                    />
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-800">
+                        Phone
+                      </label>
+                      <input
+                        name="phone"
+                        type="tel"
+                        autoComplete="tel"
+                        value={phone}
+                        onChange={(e) => {
+                          setPhone(e.target.value);
+                          setError(null);
+                        }}
+                        disabled={loading}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 shadow-inner outline-none ring-indigo-500/0 transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                        placeholder="Optional"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-800">
+                        Location
+                      </label>
+                      <input
+                        name="location"
+                        type="text"
+                        autoComplete="address-level2"
+                        value={location}
+                        onChange={(e) => {
+                          setLocation(e.target.value);
+                          setError(null);
+                        }}
+                        disabled={loading}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 shadow-inner outline-none ring-indigo-500/0 transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      LinkedIn URL
+                    </label>
+                    <input
+                      name="linkedinUrl"
+                      type="url"
+                      value={linkedinUrl}
+                      onChange={(e) => {
+                        setLinkedinUrl(e.target.value);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 shadow-inner outline-none ring-indigo-500/0 transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                      placeholder="Optional"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Portfolio/GitHub URL
+                    </label>
+                    <input
+                      name="portfolioOrGithubUrl"
+                      type="url"
+                      value={portfolioOrGithubUrl}
+                      onChange={(e) => {
+                        setPortfolioOrGithubUrl(e.target.value);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 shadow-inner outline-none ring-indigo-500/0 transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                      placeholder="Optional"
+                    />
+                  </div>
+                </>
+              ) : null}
               <div>
                 <label
                   htmlFor={emailId}

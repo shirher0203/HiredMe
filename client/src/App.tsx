@@ -5,6 +5,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { FitPreviewPage } from "./pages/FitPreviewPage";
 import { InterviewPage } from "./pages/InterviewPage";
 import { MatchResultPage } from "./pages/MatchResultPage";
+import { ProfilePage } from "./pages/ProfilePage";
 
 export function App() {
   return (
@@ -14,6 +15,7 @@ export function App() {
           <Route index element={<Navigate to="/match" replace />} />
           <Route path="match" element={<FitPreviewPage />} />
           <Route path="match/result" element={<MatchResultPage />} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route path="interview" element={<InterviewPage />} />
           <Route path="applications" element={<ApplicationsBoardPage />} />
           <Route path="auth/:mode" element={<AuthPage />} />

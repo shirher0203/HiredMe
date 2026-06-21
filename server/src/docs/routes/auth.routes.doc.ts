@@ -13,6 +13,17 @@ export const authPaths = {
               properties: {
                 email: { type: "string", format: "email" },
                 password: { type: "string", minLength: 6 },
+                personalInfo: {
+                  type: "object",
+                  description: "Account-owned personal information. CV uploads do not overwrite these fields.",
+                  properties: {
+                    fullName: { type: "string" },
+                    phone: { type: "string" },
+                    location: { type: "string" },
+                    linkedinUrl: { type: "string" },
+                    portfolioOrGithubUrl: { type: "string" },
+                  },
+                },
               },
             },
           },
@@ -54,4 +65,3 @@ export const authPaths = {
     },
   },
 };
-

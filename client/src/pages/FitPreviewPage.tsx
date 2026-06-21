@@ -1,4 +1,5 @@
 import { type FormEvent, useId, useState } from "react";
+import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { analyzeFitPreview } from "../services/fitAnalysis";
 import type { JobAnalysis, MatchAnalysis } from "../types/matching";
@@ -255,19 +256,15 @@ function ResumeSection({ resume }: { resume: ParsedResume }) {
 export function FitPreviewPage() {
   const formId = useId();
   const jobId = `${formId}-job`;
-  const fileId = `${formId}-file`;
 
   const navigate = useNavigate();
   const [jobDescription, setJobDescription] = useState("");
-  const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setJobError(null);
-    setFileError(null);
 
     const trimmed = jobDescription.trim();
     if (!trimmed) {
@@ -275,17 +272,10 @@ export function FitPreviewPage() {
       return;
     }
 
-    const ferr = validateResumeFile(resumeFile);
-    if (ferr) {
-      setFileError(ferr);
-      return;
-    }
-
     setLoading(true);
     try {
       const data = await analyzeFitPreview({
         jobDescription: trimmed,
-        resumeFile: resumeFile as File,
       });
       navigate("/match/result", {
         state: { ...data, jobDescription: trimmed },
@@ -297,27 +287,17 @@ export function FitPreviewPage() {
     }
   }
 
-  function onFileChange(list: FileList | null) {
-    setFileError(null);
-    const file = list?.[0] ?? null;
-    setResumeFile(file);
-    if (file) {
-      const ferr = validateResumeFile(file);
-      if (ferr) setFileError(ferr);
-    }
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         <header className="mb-10">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
             <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
-              Resume & job fit
+              Job fit analysis
             </span>
           </h1>
           <p className="mt-3 max-w-2xl text-lg text-slate-600">
-            Upload your resume and paste the role you are targeting.
+            Paste a job description and compare it against your saved profile CV.
           </p>
         </header>
 
@@ -335,7 +315,7 @@ export function FitPreviewPage() {
                 Job description
               </label>
               <p className="mt-1 text-sm text-slate-500">
-                Paste the job post or your target role summary.
+                Your saved profile is used automatically. Update it from the profile page before analyzing.
               </p>
               <textarea
                 id={jobId}
@@ -356,38 +336,6 @@ export function FitPreviewPage() {
                 </p>
               ) : null}
             </div>
-
-            <div>
-              <label
-                htmlFor={fileId}
-                className="block text-sm font-semibold text-slate-800"
-              >
-                Resume
-              </label>
-              <p className="mt-1 text-sm text-slate-500">
-                PDF file only.
-              </p>
-              <input
-                id={fileId}
-                name="resume"
-                type="file"
-                accept={ACCEPT}
-                onChange={(e) => onFileChange(e.target.files)}
-                disabled={loading}
-                className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-indigo-500 disabled:opacity-50"
-              />
-              {resumeFile ? (
-                <p className="mt-2 text-sm text-slate-600">
-                  Selected:{" "}
-                  <span className="font-medium">{resumeFile.name}</span>
-                </p>
-              ) : null}
-              {fileError ? (
-                <p className="mt-2 text-sm text-red-600" role="alert">
-                  {fileError}
-                </p>
-              ) : null}
-            </div>
           </div>
 
           <div className="mt-8 flex flex-col gap-3">
@@ -403,7 +351,7 @@ export function FitPreviewPage() {
                 disabled={loading}
                 className="inline-flex min-w-[9rem] items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Analyzing…" : "Analyze fit"}
+                {loading ? "Analyzing..." : "Analyze"}
               </button>
             </div>
           </div>
@@ -412,6 +360,16 @@ export function FitPreviewPage() {
         {jobError ? (
           <div className="mt-10 rounded-2xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
             {jobError}
+            {jobError.toLowerCase().includes("profile") ? (
+              <div className="mt-4">
+                <Link
+                  to="/profile"
+                  className="inline-flex rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+                >
+                  Go to profile
+                </Link>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
