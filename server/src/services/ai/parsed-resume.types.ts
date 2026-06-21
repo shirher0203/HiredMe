@@ -74,6 +74,19 @@ export interface ParsedResumeMetadata {
   years_of_experience_estimate: number;
 }
 
+/**
+ * Skill the candidate likely has based on the resume but did NOT list
+ * explicitly. Returned alongside the parsed resume so the UI can offer
+ * the user a "you might also know..." review step. Never auto-applied
+ * to the user's confirmed skills, never used in matching until the user
+ * approves it.
+ */
+export interface SuggestedSkill {
+  skill: string;
+  reason: string;
+  confidence: number;
+}
+
 export interface ParsedResume {
   raw_text_hash: string;
   personal_info: ParsedResumePersonalInfo;
@@ -86,4 +99,5 @@ export interface ParsedResume {
   certifications: ParsedResumeCertification[];
   awards: ParsedResumeAward[];
   parsed_metadata: ParsedResumeMetadata;
+  suggested_skills: SuggestedSkill[];
 }

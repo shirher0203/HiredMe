@@ -320,7 +320,14 @@ export function buildParseResumePrompt(resumeText: string): string {
   "parsed_metadata": {
     "language_detected": "en" | "he" | "mixed" | "other" | null,
     "years_of_experience_estimate": number
-  }
+  },
+  "suggested_skills": [
+    {
+      "skill": string,
+      "reason": string,
+      "confidence": number (0-100)
+    }
+  ]
 }`;
 
   const rules = [
@@ -334,6 +341,20 @@ export function buildParseResumePrompt(resumeText: string): string {
     "Do NOT add any fields beyond those listed in the schema.",
     "parsed_metadata.years_of_experience_estimate must be a non-negative number.",
     'parsed_metadata.language_detected must be one of "en", "he", "mixed", "other", or null.',
+    "",
+    "suggested_skills rules:",
+    "This is a RECOMMENDATION list, not a verified skills list. Prioritize recall over precision.",
+    "The user reviews and approves each entry manually on a follow-up screen, so over-suggesting is the desired failure mode. Missing relevant skills is the failure mode to avoid.",
+    "If the resume strongly indicates a software role, return a long ranked list of potentially relevant skills even when individual confidence is only moderate.",
+    "Target: 50+ entries whenever the resume has enough signal. For typical software-engineering resumes, prefer 75-100 entries.",
+    "Each entry is a skill the candidate likely knows but did NOT list explicitly anywhere in skills.technical_skills, skills.tools_and_software, or projects[].technologies_used.",
+    "Do NOT repeat any skill that already appears in those three places (case-insensitive).",
+    "Cover adjacent technologies, tools, frameworks, methodologies, languages, cloud / DevOps, testing, observability, and concepts that are commonly paired with what the candidate already knows. Include lower-confidence adjacent skills near the bottom of the list rather than omitting them.",
+    'skill: short canonical name in lowercase (e.g. "react", "docker", "graphql"). Single token or hyphenated. No version numbers, no marketing names.',
+    'reason: one short sentence (10-200 chars) explaining why this is a likely skill (e.g. "commonly used together with React in modern frontend stacks").',
+    "confidence: integer between 0 and 100 that reflects certainty. Higher = stronger evidence from the resume. Lower-confidence entries (e.g. 30-60) are expected and welcome — do not stop after only high-confidence suggestions.",
+    "Sort the array by confidence descending. Keep emitting until the list is exhausted, not after a quality cutoff.",
+    "Only return an empty array when the resume contains too little signal to suggest anything reasonable.",
   ].join("\n");
 
   const truncated = resumeText.length > RESUME_MAX_CHARS;

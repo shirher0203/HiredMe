@@ -372,6 +372,7 @@ chaining.
 | `certifications`        | `ParsedResumeCertification[]`           | Always an array.                                                                 |
 | `awards`                | `ParsedResumeAward[]`                   | Always an array.                                                                 |
 | `parsed_metadata`       | `ParsedResumeMetadata`                  | See below.                                                                       |
+| `suggested_skills`      | `SuggestedSkill[]`                      | Prioritized list of skills the candidate likely knows but did NOT list. **Descriptive only — never auto-applied.** See "Suggested skills" below. |
 
 **`ParsedResumeMetadata`**
 
@@ -418,6 +419,30 @@ it and downstream code should tolerate variants gracefully.
 
 - Returns `mockParsedResume` with `raw_text_hash` recomputed from the
   actual input. `callAi` is never invoked.
+
+**Suggested skills.**
+
+- Each entry is `{ skill: string, reason: string, confidence: number }`.
+- `skill` is normalized via `normalizeSkills` (e.g. `"React.js"` → `"react"`).
+- `confidence` is clamped to the inclusive range `0-100` and rounded to an integer.
+- Entries that duplicate any value already present in
+  `skills.technical_skills`, `skills.tools_and_software`, or
+  `projects[].technologies_used` are dropped. Comparison is on the
+  normalized form.
+- The list is deduped by normalized skill and sorted by
+  `confidence` descending, with alphabetical tie-break on `skill`.
+- **Recall over precision.** The prompt asks the AI for 50+ entries
+  whenever the resume has enough signal, and 75-100 for typical
+  software-engineering resumes. Lower-confidence entries (e.g. 30-60)
+  are intentionally included near the bottom of the list rather than
+  trimmed — they exist to populate a user-review screen where the
+  user manually approves each suggestion. In practice a thin resume
+  can yield fewer; an empty array is a legal response.
+- **This field is descriptive only.** The Backend MUST treat it as a
+  "you might also know..." suggestion list to surface to the user.
+  Do NOT merge `suggested_skills` into the user's profile, do NOT pass
+  it into `calculateMatch`, and do NOT use it in any deterministic
+  scoring. The user must approve each suggestion manually.
 
 **Example — realistic `ParsedResume`**
 
@@ -480,7 +505,13 @@ it and downstream code should tolerate variants gracefully.
   "parsed_metadata": {
     "language_detected": "en",
     "years_of_experience_estimate": 1
-  }
+  },
+  "suggested_skills": [
+    { "skill": "redux", "reason": "common state management for React applications.", "confidence": 92 },
+    { "skill": "express", "reason": "default Node web framework given Node + REST experience.", "confidence": 88 },
+    { "skill": "jest", "reason": "standard JavaScript / TypeScript unit testing tool.", "confidence": 86 },
+    { "skill": "tailwind", "reason": "popular utility-first CSS framework alongside React.", "confidence": 78 }
+  ]
 }
 ```
 
