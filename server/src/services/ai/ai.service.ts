@@ -42,6 +42,7 @@ import type {
   ParsedResumeAward,
   ParsedResumeMetadata,
   ParsedResumeLanguageDetected,
+  SuggestedSkill,
 } from "./parsed-resume.types";
 
 import { callAi, getActiveModelName, isApiKeyConfigured } from "./ai.client";
@@ -327,6 +328,7 @@ const RESUME_TOP_KEYS = [
   "certifications",
   "awards",
   "parsed_metadata",
+  "suggested_skills",
 ] as const;
 
 const RESUME_LANGUAGE_VALUES = ["en", "he", "mixed", "other"] as const;
@@ -536,6 +538,65 @@ function validateAwardEntry(
   };
 }
 
+function validateSuggestedSkills(
+  raw: unknown,
+  existing: ParsedResumeSkills,
+  projects: ParsedResumeProject[],
+  fn: string
+): SuggestedSkill[] {
+  const arr = requireArray(raw, "suggested_skills", fn);
+
+  const existingSet = new Set<string>();
+  for (const s of existing.technical_skills) existingSet.add(s);
+  for (const s of existing.tools_and_software) existingSet.add(s);
+  for (const p of projects) {
+    for (const t of p.technologies_used) existingSet.add(t);
+  }
+
+  const seen = new Set<string>();
+  const out: SuggestedSkill[] = [];
+
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    if (!isPlainObject(item)) continue;
+
+    const rawSkill = item.skill;
+    if (typeof rawSkill !== "string") continue;
+    const trimmedSkill = rawSkill.trim();
+    if (trimmedSkill === "") continue;
+
+    const normalized = normalizeSkills([trimmedSkill]);
+    if (normalized.length === 0) continue;
+    const skill = normalized[0];
+    if (skill === "") continue;
+
+    if (existingSet.has(skill) || seen.has(skill)) continue;
+
+    const rawReason = item.reason;
+    if (typeof rawReason !== "string") continue;
+    const reason = rawReason.trim();
+    if (reason === "") continue;
+
+    let confidence: number;
+    try {
+      confidence = toNumberScore(item.confidence, "suggested_skills.confidence", fn);
+    } catch {
+      continue;
+    }
+    confidence = clampScore(confidence);
+
+    seen.add(skill);
+    out.push({ skill, reason, confidence });
+  }
+
+  out.sort((a, b) => {
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    return a.skill.localeCompare(b.skill);
+  });
+
+  return out;
+}
+
 function validateMetadata(
   raw: Record<string, unknown>,
   fn: string
@@ -608,6 +669,13 @@ function buildParsedResumeFromParsed(
     fn
   );
 
+  const suggested = validateSuggestedSkills(
+    parsed.suggested_skills,
+    skills,
+    projects,
+    fn
+  );
+
   return {
     personal_info: personal,
     professional_summary: coerceNullableString(parsed.professional_summary),
@@ -619,6 +687,7 @@ function buildParsedResumeFromParsed(
     certifications,
     awards,
     parsed_metadata: metadata,
+    suggested_skills: suggested,
   };
 }
 

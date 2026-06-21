@@ -76,6 +76,11 @@ function validPayload(): Record<string, unknown> {
       language_detected: "en",
       years_of_experience_estimate: 1,
     },
+    suggested_skills: [
+      { skill: "redux", reason: "common state management for React apps.", confidence: 90 },
+      { skill: "express", reason: "default Node web framework.", confidence: 88 },
+      { skill: "jest", reason: "standard TypeScript testing tool.", confidence: 85 },
+    ],
   };
 }
 
@@ -305,6 +310,7 @@ describe("ParsedResume structure invariants", () => {
       "certifications",
       "awards",
       "parsed_metadata",
+      "suggested_skills",
     ];
     for (const key of expectedKeys) {
       expect(result).toHaveProperty(key);
@@ -333,5 +339,231 @@ describe("ParsedResume structure invariants", () => {
     const h = __testables.sha256Hex("hello");
     expect(h).toMatch(/^[0-9a-f]{64}$/);
     expect(__testables.sha256Hex("hello")).toBe(h);
+  });
+});
+
+describe("parseResume — suggested_skills", () => {
+  let original: string | undefined;
+
+  beforeAll(() => {
+    original = process.env.USE_MOCK_AI;
+    process.env.USE_MOCK_AI = "false";
+  });
+
+  afterAll(() => {
+    if (original === undefined) delete process.env.USE_MOCK_AI;
+    else process.env.USE_MOCK_AI = original;
+  });
+
+  beforeEach(() => {
+    mockedCallAi.mockReset();
+  });
+
+  it("mock-mode parseResume includes at least 50 suggested skills", async () => {
+    process.env.USE_MOCK_AI = "true";
+    try {
+      const result = await parseResume("any text");
+      expect(result.suggested_skills.length).toBeGreaterThanOrEqual(50);
+      for (const s of result.suggested_skills) {
+        expect(typeof s.skill).toBe("string");
+        expect(s.skill.length).toBeGreaterThan(0);
+        expect(typeof s.reason).toBe("string");
+        expect(s.confidence).toBeGreaterThanOrEqual(0);
+        expect(s.confidence).toBeLessThanOrEqual(100);
+      }
+    } finally {
+      process.env.USE_MOCK_AI = "false";
+    }
+  });
+
+  it("rejects when suggested_skills is missing (after retry)", async () => {
+    const payload = validPayload();
+    delete (payload as Record<string, unknown>).suggested_skills;
+    mockedCallAi
+      .mockResolvedValueOnce(JSON.stringify(payload))
+      .mockResolvedValueOnce(JSON.stringify(payload));
+    await expect(parseResume(RESUME_TEXT)).rejects.toThrow(
+      /missing required top-level key 'suggested_skills'/
+    );
+    expect(mockedCallAi).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects when suggested_skills is not an array", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = "nope";
+    mockedCallAi
+      .mockResolvedValueOnce(JSON.stringify(payload))
+      .mockResolvedValueOnce(JSON.stringify(payload));
+    await expect(parseResume(RESUME_TEXT)).rejects.toThrow(
+      /field 'suggested_skills' is not an array/
+    );
+  });
+
+  it("normalizes aliases and dedupes by canonical form", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "React.js", reason: "ecosystem fit.", confidence: 90 },
+      { skill: "reactjs", reason: "duplicate alias.", confidence: 80 },
+      { skill: "Express", reason: "default Node web framework.", confidence: 85 },
+    ];
+    // technical_skills includes "React.js" -> normalizes to "react", so the
+    // first two suggestions collapse to "react" which already exists, and both
+    // should be dropped. Only "express" survives.
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const skills = result.suggested_skills.map((s) => s.skill);
+    expect(skills).toEqual(["express"]);
+  });
+
+  it("drops suggestions that duplicate existing technical_skills", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "react", reason: "already known.", confidence: 95 },
+      { skill: "graphql", reason: "common API layer.", confidence: 70 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const skills = result.suggested_skills.map((s) => s.skill);
+    expect(skills).not.toContain("react");
+    expect(skills).toContain("graphql");
+  });
+
+  it("drops suggestions that duplicate existing tools_and_software", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "Docker", reason: "already in tools.", confidence: 95 },
+      { skill: "kubernetes", reason: "natural step from Docker.", confidence: 60 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const skills = result.suggested_skills.map((s) => s.skill);
+    expect(skills).not.toContain("docker");
+    expect(skills).toContain("kubernetes");
+  });
+
+  it("drops suggestions that duplicate project technologies", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "MongoDB", reason: "already in project tech.", confidence: 90 },
+      { skill: "redis", reason: "common caching layer.", confidence: 60 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const skills = result.suggested_skills.map((s) => s.skill);
+    expect(skills).not.toContain("mongodb");
+    expect(skills).toContain("redis");
+  });
+
+  it("clamps confidence to [0, 100] and coerces numeric strings", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "graphql", reason: "ok.", confidence: 120 },
+      { skill: "redis", reason: "ok.", confidence: -10 },
+      { skill: "vite", reason: "ok.", confidence: "85" },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const byName = new Map(result.suggested_skills.map((s) => [s.skill, s.confidence]));
+    expect(byName.get("graphql")).toBe(100);
+    expect(byName.get("redis")).toBe(0);
+    expect(byName.get("vite")).toBe(85);
+  });
+
+  it("drops entries with non-coercible confidence rather than inserting 0", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "graphql", reason: "ok.", confidence: "abc" },
+      { skill: "vite", reason: "ok.", confidence: 70 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const skills = result.suggested_skills.map((s) => s.skill);
+    expect(skills).toEqual(["vite"]);
+  });
+
+  it("drops entries with empty or missing reason", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "graphql", reason: "", confidence: 80 },
+      { skill: "vite", confidence: 70 },
+      { skill: "redis", reason: "ok.", confidence: 60 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const skills = result.suggested_skills.map((s) => s.skill);
+    expect(skills).toEqual(["redis"]);
+  });
+
+  it("returns the list sorted by confidence descending", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "graphql", reason: "ok.", confidence: 40 },
+      { skill: "redis", reason: "ok.", confidence: 90 },
+      { skill: "vite", reason: "ok.", confidence: 70 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const confs = result.suggested_skills.map((s) => s.confidence);
+    expect(confs).toEqual([...confs].sort((a, b) => b - a));
+    expect(result.suggested_skills.map((s) => s.skill)).toEqual([
+      "redis",
+      "vite",
+      "graphql",
+    ]);
+  });
+
+  it("breaks confidence ties alphabetically by skill", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "vite", reason: "ok.", confidence: 70 },
+      { skill: "graphql", reason: "ok.", confidence: 70 },
+      { skill: "redis", reason: "ok.", confidence: 70 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    expect(result.suggested_skills.map((s) => s.skill)).toEqual([
+      "graphql",
+      "redis",
+      "vite",
+    ]);
+  });
+
+  it("empty suggested_skills array is allowed and does not retry", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    expect(result.suggested_skills).toEqual([]);
+    expect(mockedCallAi).toHaveBeenCalledTimes(1);
+  });
+
+  it("mockParsedResume's suggested_skills do not duplicate its own CV skills", () => {
+    const existing = new Set<string>([
+      ...mockParsedResume.skills.technical_skills,
+      ...mockParsedResume.skills.tools_and_software,
+      ...mockParsedResume.projects.flatMap((p) => p.technologies_used),
+    ]);
+    for (const s of mockParsedResume.suggested_skills) {
+      expect(existing.has(s.skill)).toBe(false);
+    }
+  });
+
+  it("rejects entries whose normalized skill is empty", async () => {
+    const payload = validPayload();
+    (payload as Record<string, unknown>).suggested_skills = [
+      { skill: "   ", reason: "blank.", confidence: 50 },
+      { skill: "redis", reason: "ok.", confidence: 60 },
+    ];
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    expect(result.suggested_skills.map((s) => s.skill)).toEqual(["redis"]);
+  });
+
+  it("hash also computed when suggested_skills is present", async () => {
+    const payload = validPayload();
+    mockedCallAi.mockResolvedValueOnce(JSON.stringify(payload));
+    const result = await parseResume(RESUME_TEXT);
+    const expected = createHash("sha256").update(RESUME_TEXT, "utf8").digest("hex");
+    expect(result.raw_text_hash).toBe(expected);
   });
 });
