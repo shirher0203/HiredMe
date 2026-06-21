@@ -25,6 +25,12 @@ import type {
   EvaluateAnswerInput,
   SemanticMatchAiResponse,
   ResumeAwareSemanticMatchAiResponse,
+  HomeAssignmentEvaluation,
+  EvaluateHomeAssignmentInput,
+  GithubRepoAnalysis,
+  AnalyzeGithubRepoInput,
+  SummarizeAttemptInput,
+  InterviewAttemptSummary,
 } from "./ai.types";
 import type {
   ParsedResume,
@@ -38,9 +44,17 @@ import type {
   ParsedResumeAward,
   ParsedResumeMetadata,
   ParsedResumeLanguageDetected,
+  SuggestedSkill,
 } from "./parsed-resume.types";
 
-import { callAi } from "./ai.client";
+import { callAi, getActiveModelName, isApiKeyConfigured } from "./ai.client";
+import {
+  logAiStart,
+  logAiSuccess,
+  logAiFailure,
+  logAiPromptPreview,
+  logAiOutputPreview,
+} from "./ai.logger";
 import { parseJsonFromAi } from "../../utils/safe-json";
 import {
   buildAnalyzeJobPrompt,
@@ -50,6 +64,9 @@ import {
   buildResumeAwareSemanticMatchPrompt,
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
+  buildEvaluateHomeAssignmentPrompt,
+  buildAnalyzeGithubRepoPrompt,
+  buildSummarizeAttemptPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
 import { normalizeSkills } from "../matching/skills-normalizer";
@@ -66,6 +83,9 @@ import {
   mockInterviewQuestions,
   mockAnswerEvaluation,
   mockParsedResume,
+  mockHomeAssignmentEvaluation,
+  mockGithubRepoAnalysis,
+  mockInterviewAttemptSummary,
 } from "./mock-ai.responses";
 
 // ---------------------------------------------------------------------------
@@ -202,15 +222,20 @@ const RETRY_SUFFIX =
 async function withOneRetry<T>(
   functionName: string,
   prompt: string,
-  parseAndValidate: (raw: string) => T
+  parseAndValidate: (raw: string) => T,
+  onRawOutput?: (raw: string) => void
 ): Promise<T> {
   const rawFirst = await callAi(prompt);
   try {
-    return parseAndValidate(rawFirst);
+    const out = parseAndValidate(rawFirst);
+    if (onRawOutput) onRawOutput(rawFirst);
+    return out;
   } catch (firstErr) {
     const rawRetry = await callAi(prompt + RETRY_SUFFIX);
     try {
-      return parseAndValidate(rawRetry);
+      const out = parseAndValidate(rawRetry);
+      if (onRawOutput) onRawOutput(rawRetry);
+      return out;
     } catch (retryErr) {
       const firstMsg =
         firstErr instanceof Error ? firstErr.message : String(firstErr);
@@ -220,6 +245,75 @@ async function withOneRetry<T>(
         `${functionName}: retry failed — first error: ${firstMsg}; retry error: ${retryMsg}`
       );
     }
+  }
+}
+
+/**
+ * Wraps an exported AI service function with start/success/failure logs.
+ *
+ * The wrapper is the only place service-level logging lives — call sites
+ * just `return instrument("foo", () => impl())`. It also exposes a small
+ * context to the implementation so prompt/output previews can be emitted
+ * with consistent function names.
+ */
+interface InstrumentContext {
+  recordPrompt: (prompt: string) => void;
+  recordOutput: (rawOutput: string) => void;
+  setPromptChars: (n: number) => void;
+  setOutputChars: (n: number) => void;
+}
+
+async function instrument<T>(
+  functionName: string,
+  impl: (ctx: InstrumentContext) => Promise<T>
+): Promise<T> {
+  const mock = isMockMode();
+  const start = Date.now();
+  let promptChars: number | undefined;
+  let outputChars: number | undefined;
+
+  const ctx: InstrumentContext = {
+    recordPrompt: (prompt: string) => {
+      promptChars = prompt.length;
+      logAiPromptPreview(functionName, prompt);
+    },
+    recordOutput: (rawOutput: string) => {
+      outputChars = rawOutput.length;
+      logAiOutputPreview(functionName, rawOutput);
+    },
+    setPromptChars: (n: number) => {
+      promptChars = n;
+    },
+    setOutputChars: (n: number) => {
+      outputChars = n;
+    },
+  };
+
+  logAiStart({
+    functionName,
+    model: mock ? undefined : getActiveModelName(),
+    mock,
+    keyConfigured: isApiKeyConfigured(),
+  });
+
+  try {
+    const result = await impl(ctx);
+    logAiSuccess({
+      functionName,
+      durationMs: Date.now() - start,
+      promptChars,
+      outputChars,
+      mock,
+    });
+    return result;
+  } catch (err) {
+    logAiFailure({
+      functionName,
+      durationMs: Date.now() - start,
+      error: err,
+      mock,
+    });
+    throw err;
   }
 }
 
@@ -238,6 +332,7 @@ const RESUME_TOP_KEYS = [
   "certifications",
   "awards",
   "parsed_metadata",
+  "suggested_skills",
 ] as const;
 
 const RESUME_LANGUAGE_VALUES = ["en", "he", "mixed", "other"] as const;
@@ -447,6 +542,65 @@ function validateAwardEntry(
   };
 }
 
+function validateSuggestedSkills(
+  raw: unknown,
+  existing: ParsedResumeSkills,
+  projects: ParsedResumeProject[],
+  fn: string
+): SuggestedSkill[] {
+  const arr = requireArray(raw, "suggested_skills", fn);
+
+  const existingSet = new Set<string>();
+  for (const s of existing.technical_skills) existingSet.add(s);
+  for (const s of existing.tools_and_software) existingSet.add(s);
+  for (const p of projects) {
+    for (const t of p.technologies_used) existingSet.add(t);
+  }
+
+  const seen = new Set<string>();
+  const out: SuggestedSkill[] = [];
+
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    if (!isPlainObject(item)) continue;
+
+    const rawSkill = item.skill;
+    if (typeof rawSkill !== "string") continue;
+    const trimmedSkill = rawSkill.trim();
+    if (trimmedSkill === "") continue;
+
+    const normalized = normalizeSkills([trimmedSkill]);
+    if (normalized.length === 0) continue;
+    const skill = normalized[0];
+    if (skill === "") continue;
+
+    if (existingSet.has(skill) || seen.has(skill)) continue;
+
+    const rawReason = item.reason;
+    if (typeof rawReason !== "string") continue;
+    const reason = rawReason.trim();
+    if (reason === "") continue;
+
+    let confidence: number;
+    try {
+      confidence = toNumberScore(item.confidence, "suggested_skills.confidence", fn);
+    } catch {
+      continue;
+    }
+    confidence = clampScore(confidence);
+
+    seen.add(skill);
+    out.push({ skill, reason, confidence });
+  }
+
+  out.sort((a, b) => {
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    return a.skill.localeCompare(b.skill);
+  });
+
+  return out;
+}
+
 function validateMetadata(
   raw: Record<string, unknown>,
   fn: string
@@ -519,6 +673,13 @@ function buildParsedResumeFromParsed(
     fn
   );
 
+  const suggested = validateSuggestedSkills(
+    parsed.suggested_skills,
+    skills,
+    projects,
+    fn
+  );
+
   return {
     personal_info: personal,
     professional_summary: coerceNullableString(parsed.professional_summary),
@@ -530,6 +691,7 @@ function buildParsedResumeFromParsed(
     certifications,
     awards,
     parsed_metadata: metadata,
+    suggested_skills: suggested,
   };
 }
 
@@ -725,6 +887,160 @@ function validateAnswerEvaluation(raw: string): AnswerEvaluation {
   };
 }
 
+function validateHomeAssignmentEvaluation(
+  raw: string
+): HomeAssignmentEvaluation {
+  const fn = "evaluateHomeAssignment";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  return {
+    score: clampScore(toNumberScore(parsed.score, "score", fn)),
+    summary: requireString(parsed.summary, "summary", fn),
+    strengths: requireStringArray(parsed.strengths, "strengths", fn),
+    improvements: requireStringArray(parsed.improvements, "improvements", fn),
+  };
+}
+
+const ATTEMPT_SUMMARY_KEYS = [
+  "summary",
+  "overallScore",
+  "preserve_points",
+  "improve_points",
+  "topics_covered",
+  "overall_feedback",
+] as const;
+
+function validateBoundedString(
+  value: unknown,
+  fieldName: string,
+  fn: string,
+  min: number,
+  max: number
+): string {
+  const s = requireString(value, fieldName, fn).trim();
+  if (s.length < min || s.length > max) {
+    throw new Error(
+      `${fn}: field '${fieldName}' must be ${min}-${max} chars (received ${s.length})`
+    );
+  }
+  return s;
+}
+
+function normalizeBoundedStringArray(
+  value: unknown,
+  fieldName: string,
+  fn: string,
+  minLen: number,
+  maxLen: number,
+  itemMin: number,
+  itemMax: number
+): string[] {
+  const arr = requireArray(value, fieldName, fn);
+  const out: string[] = [];
+  for (const raw of arr) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed.length < itemMin || trimmed.length > itemMax) continue;
+    out.push(trimmed);
+  }
+  if (out.length < minLen) {
+    throw new Error(
+      `${fn}: field '${fieldName}' must have at least ${minLen} valid entr${minLen === 1 ? "y" : "ies"} (got ${out.length})`
+    );
+  }
+  return out.slice(0, maxLen);
+}
+
+function normalizeTopicsArray(value: unknown, fn: string): string[] {
+  const arr = requireArray(value, "topics_covered", fn);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of arr) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed === "") continue;
+    const lower = trimmed.toLowerCase();
+    if (lower.length > 60) continue;
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(lower);
+    if (out.length >= 15) break;
+  }
+  return out;
+}
+
+function validateInterviewAttemptSummary(
+  raw: string
+): InterviewAttemptSummary {
+  const fn = "summarizeInterviewAttempt";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  if (!isPlainObject(parsed)) {
+    throw new Error(`${fn}: top-level value is not an object`);
+  }
+  for (const key of ATTEMPT_SUMMARY_KEYS) {
+    if (!(key in parsed)) {
+      throw new Error(`${fn}: missing required top-level key '${key}'`);
+    }
+  }
+
+  const summary = validateBoundedString(parsed.summary, "summary", fn, 50, 800);
+  const overallScore = clampScore(
+    toNumberScore(parsed.overallScore, "overallScore", fn)
+  );
+  const preserve = normalizeBoundedStringArray(
+    parsed.preserve_points,
+    "preserve_points",
+    fn,
+    1,
+    2,
+    10,
+    200
+  );
+  const improve = normalizeBoundedStringArray(
+    parsed.improve_points,
+    "improve_points",
+    fn,
+    1,
+    2,
+    10,
+    200
+  );
+  const topics = normalizeTopicsArray(parsed.topics_covered, fn);
+  const feedback = validateBoundedString(
+    parsed.overall_feedback,
+    "overall_feedback",
+    fn,
+    20,
+    300
+  );
+
+  return {
+    summary,
+    overallScore,
+    preserve_points: preserve,
+    improve_points: improve,
+    topics_covered: topics,
+    overall_feedback: feedback,
+  };
+}
+
+function validateGithubRepoAnalysis(raw: string): GithubRepoAnalysis {
+  const fn = "analyzeGithubRepo";
+  const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
+  return {
+    architectureSummary: requireString(
+      parsed.architectureSummary,
+      "architectureSummary",
+      fn
+    ),
+    codeQualityScore: clampScore(
+      toNumberScore(parsed.codeQualityScore, "codeQualityScore", fn)
+    ),
+    strengths: requireStringArray(parsed.strengths, "strengths", fn),
+    concerns: requireStringArray(parsed.concerns, "concerns", fn),
+    detectedStack: requireStringArray(parsed.detectedStack, "detectedStack", fn),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public service functions
 // ---------------------------------------------------------------------------
@@ -732,29 +1048,37 @@ function validateAnswerEvaluation(raw: string): AnswerEvaluation {
 export async function analyzeProfile(
   profile: ProfileInput
 ): Promise<ProfileAnalysis> {
-  if (isMockMode()) {
-    return mockProfileAnalysis;
-  }
-  const prompt = buildAnalyzeProfilePrompt(profile);
-  return withOneRetry<ProfileAnalysis>(
-    "analyzeProfile",
-    prompt,
-    validateProfileAnalysis
-  );
+  return instrument("analyzeProfile", async (ctx) => {
+    if (isMockMode()) {
+      return mockProfileAnalysis;
+    }
+    const prompt = buildAnalyzeProfilePrompt(profile);
+    ctx.recordPrompt(prompt);
+    return withOneRetry<ProfileAnalysis>(
+      "analyzeProfile",
+      prompt,
+      validateProfileAnalysis,
+      ctx.recordOutput
+    );
+  });
 }
 
 export async function analyzeJob(
   jobDescription: string
 ): Promise<JobAnalysis> {
-  if (isMockMode()) {
-    return mockJobAnalysis;
-  }
-  const prompt = buildAnalyzeJobPrompt({ jobDescription });
-  return withOneRetry<JobAnalysis>(
-    "analyzeJob",
-    prompt,
-    validateJobAnalysis
-  );
+  return instrument("analyzeJob", async (ctx) => {
+    if (isMockMode()) {
+      return mockJobAnalysis;
+    }
+    const prompt = buildAnalyzeJobPrompt({ jobDescription });
+    ctx.recordPrompt(prompt);
+    return withOneRetry<JobAnalysis>(
+      "analyzeJob",
+      prompt,
+      validateJobAnalysis,
+      ctx.recordOutput
+    );
+  });
 }
 
 export async function calculateMatch(
@@ -762,33 +1086,78 @@ export async function calculateMatch(
   jobAnalysis: JobAnalysis,
   resume?: ParsedResume
 ): Promise<MatchAnalysis> {
-  const rawProfileSkills = profile?.skills ?? [];
-  const requiredSkills = jobAnalysis?.requiredSkills ?? [];
-  const advantageSkills = jobAnalysis?.advantageSkills ?? [];
+  return instrument("calculateMatch", async (ctx) => {
+    const rawProfileSkills = profile?.skills ?? [];
+    const requiredSkills = jobAnalysis?.requiredSkills ?? [];
+    const advantageSkills = jobAnalysis?.advantageSkills ?? [];
 
-  if (!resume) {
-    const profileSkills = rawProfileSkills;
+    if (!resume) {
+      const profileSkills = rawProfileSkills;
+
+      if (isMockMode()) {
+        return buildDeterministicMatch(
+          profileSkills,
+          requiredSkills,
+          advantageSkills,
+          mockSemanticMatch.aiSemanticScore,
+          mockSemanticMatch.explanation
+        );
+      }
+
+      const prompt = buildSemanticMatchPrompt({
+        profileSkills,
+        requiredSkills,
+        advantageSkills,
+      });
+      ctx.recordPrompt(prompt);
+
+      const semantic = await withOneRetry<SemanticMatchAiResponse>(
+        "calculateMatch",
+        prompt,
+        validateSemanticMatch,
+        ctx.recordOutput
+      );
+
+      return buildDeterministicMatch(
+        profileSkills,
+        requiredSkills,
+        advantageSkills,
+        semantic.aiSemanticScore,
+        semantic.explanation
+      );
+    }
+
+    const enrichment = enrichFromResume(resume);
+    const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
 
     if (isMockMode()) {
       return buildDeterministicMatch(
         profileSkills,
         requiredSkills,
         advantageSkills,
-        mockSemanticMatch.aiSemanticScore,
-        mockSemanticMatch.explanation
+        mockResumeAwareSemanticMatch.aiSemanticScore,
+        mockResumeAwareSemanticMatch.explanation,
+        extractMatchExtras(mockResumeAwareSemanticMatch)
       );
     }
 
-    const prompt = buildSemanticMatchPrompt({
+    const prompt = buildResumeAwareSemanticMatchPrompt({
       profileSkills,
       requiredSkills,
       advantageSkills,
+      workExperienceSummary: enrichment.workExperienceSummary,
+      educationSummary: enrichment.educationSummary,
+      topProjectsSummary: enrichment.topProjectsSummary,
+      languagesSummary: enrichment.languagesSummary,
+      experienceYears: enrichment.experienceYears,
     });
+    ctx.recordPrompt(prompt);
 
-    const semantic = await withOneRetry<SemanticMatchAiResponse>(
+    const semantic = await withOneRetry<ResumeAwareSemanticMatchAiResponse>(
       "calculateMatch",
       prompt,
-      validateSemanticMatch
+      validateResumeAwareSemanticMatch,
+      ctx.recordOutput
     );
 
     return buildDeterministicMatch(
@@ -796,114 +1165,222 @@ export async function calculateMatch(
       requiredSkills,
       advantageSkills,
       semantic.aiSemanticScore,
-      semantic.explanation
+      semantic.explanation,
+      extractMatchExtras(semantic)
     );
-  }
-
-  const enrichment = enrichFromResume(resume);
-  const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
-
-  if (isMockMode()) {
-    return buildDeterministicMatch(
-      profileSkills,
-      requiredSkills,
-      advantageSkills,
-      mockResumeAwareSemanticMatch.aiSemanticScore,
-      mockResumeAwareSemanticMatch.explanation,
-      extractMatchExtras(mockResumeAwareSemanticMatch)
-    );
-  }
-
-  const prompt = buildResumeAwareSemanticMatchPrompt({
-    profileSkills,
-    requiredSkills,
-    advantageSkills,
-    workExperienceSummary: enrichment.workExperienceSummary,
-    educationSummary: enrichment.educationSummary,
-    topProjectsSummary: enrichment.topProjectsSummary,
-    languagesSummary: enrichment.languagesSummary,
-    experienceYears: enrichment.experienceYears,
   });
-
-  const semantic = await withOneRetry<ResumeAwareSemanticMatchAiResponse>(
-    "calculateMatch",
-    prompt,
-    validateResumeAwareSemanticMatch
-  );
-
-  return buildDeterministicMatch(
-    profileSkills,
-    requiredSkills,
-    advantageSkills,
-    semantic.aiSemanticScore,
-    semantic.explanation,
-    extractMatchExtras(semantic)
-  );
 }
 
 export async function generateInterviewQuestions(
   input: GenerateQuestionsInput
 ): Promise<{ questions: InterviewQuestion[] }> {
-  if (isMockMode()) {
-    const sliced = mockInterviewQuestions.slice(0, Math.max(0, input.count));
-    return { questions: ensureQuestionIds(sliced) };
-  }
+  return instrument("generateInterviewQuestions", async (ctx) => {
+    if (isMockMode()) {
+      const sliced = mockInterviewQuestions.slice(0, Math.max(0, input.count));
+      return { questions: ensureQuestionIds(sliced) };
+    }
 
-  const prompt = buildGenerateQuestionsPrompt({
-    interviewType: input.interviewType,
-    profileSkills: input.profileSkills,
-    jobRequiredSkills: input.jobRequiredSkills,
-    count: input.count,
-    language: input.language,
+    const prompt = buildGenerateQuestionsPrompt({
+      interviewType: input.interviewType,
+      profileSkills: input.profileSkills,
+      jobRequiredSkills: input.jobRequiredSkills,
+      count: input.count,
+      language: input.language,
+    });
+    ctx.recordPrompt(prompt);
+
+    return withOneRetry<{ questions: InterviewQuestion[] }>(
+      "generateInterviewQuestions",
+      prompt,
+      validateQuestions,
+      ctx.recordOutput
+    );
   });
-
-  return withOneRetry<{ questions: InterviewQuestion[] }>(
-    "generateInterviewQuestions",
-    prompt,
-    validateQuestions
-  );
 }
 
 export async function evaluateAnswer(
   input: EvaluateAnswerInput
 ): Promise<AnswerEvaluation> {
-  if (isMockMode()) {
-    return mockAnswerEvaluation;
+  return instrument("evaluateAnswer", async (ctx) => {
+    if (isMockMode()) {
+      return mockAnswerEvaluation;
+    }
+
+    const prompt = buildEvaluateAnswerPrompt({
+      question: input.question,
+      expectedFocus: input.expectedFocus,
+      userAnswer: input.userAnswer,
+      interviewType: input.interviewType,
+    });
+    ctx.recordPrompt(prompt);
+
+    return withOneRetry<AnswerEvaluation>(
+      "evaluateAnswer",
+      prompt,
+      validateAnswerEvaluation,
+      ctx.recordOutput
+    );
+  });
+}
+
+export async function evaluateHomeAssignment(
+  input: EvaluateHomeAssignmentInput
+): Promise<HomeAssignmentEvaluation> {
+  if (typeof input?.code !== "string" || input.code.trim() === "") {
+    throw new Error("evaluateHomeAssignment: code must be a non-empty string");
   }
 
-  const prompt = buildEvaluateAnswerPrompt({
-    question: input.question,
-    expectedFocus: input.expectedFocus,
-    userAnswer: input.userAnswer,
-    interviewType: input.interviewType,
+  if (isMockMode()) {
+    return mockHomeAssignmentEvaluation;
+  }
+
+  const prompt = buildEvaluateHomeAssignmentPrompt({
+    code: input.code,
+    language: input.language,
+    jobContext: input.jobContext,
   });
 
-  return withOneRetry<AnswerEvaluation>(
-    "evaluateAnswer",
+  return withOneRetry<HomeAssignmentEvaluation>(
+    "evaluateHomeAssignment",
     prompt,
-    validateAnswerEvaluation
+    validateHomeAssignmentEvaluation
   );
 }
 
-export async function parseResume(resumeText: string): Promise<ParsedResume> {
-  if (typeof resumeText !== "string" || resumeText.trim() === "") {
-    throw new Error("parseResume: resumeText must be a non-empty string");
+export async function analyzeGithubRepo(
+  input: AnalyzeGithubRepoInput
+): Promise<GithubRepoAnalysis> {
+  if (!input?.metadata) {
+    throw new Error("analyzeGithubRepo: metadata is required");
   }
-
-  const rawHash = sha256Hex(resumeText);
 
   if (isMockMode()) {
-    return { ...mockParsedResume, raw_text_hash: rawHash };
+    return mockGithubRepoAnalysis;
   }
 
-  const prompt = buildParseResumePrompt(resumeText);
-  const body = await withOneRetry<Omit<ParsedResume, "raw_text_hash">>(
-    "parseResume",
-    prompt,
-    validateParsedResume
-  );
+  const prompt = buildAnalyzeGithubRepoPrompt({
+    fullName: input.metadata.fullName,
+    description: input.metadata.description,
+    primaryLanguage: input.metadata.primaryLanguage,
+    languages: input.metadata.languages,
+    stars: input.metadata.stars,
+    readme: input.metadata.readme,
+    packageJson: input.metadata.packageJson,
+  });
 
-  return { ...body, raw_text_hash: rawHash };
+  return withOneRetry<GithubRepoAnalysis>(
+    "analyzeGithubRepo",
+    prompt,
+    validateGithubRepoAnalysis
+  );
+}
+
+function validateAttemptInput(input: SummarizeAttemptInput): void {
+  const fn = "summarizeInterviewAttempt";
+  if (!input || typeof input !== "object") {
+    throw new Error(`${fn}: input is required`);
+  }
+  if (input.interviewType !== "hr" && input.interviewType !== "technical") {
+    throw new Error(
+      `${fn}: interviewType must be one of [hr, technical] (received ${JSON.stringify(input.interviewType)})`
+    );
+  }
+  if (!Array.isArray(input.answers) || input.answers.length === 0) {
+    throw new Error(`${fn}: answers must be a non-empty array`);
+  }
+  for (let i = 0; i < input.answers.length; i++) {
+    const a = input.answers[i];
+    if (!a || typeof a !== "object") {
+      throw new Error(`${fn}: answers[${i}] is not an object`);
+    }
+    if (typeof a.questionId !== "string" || a.questionId.trim() === "") {
+      throw new Error(`${fn}: answers[${i}].questionId must be a non-empty string`);
+    }
+    if (typeof a.question !== "string" || a.question.trim() === "") {
+      throw new Error(`${fn}: answers[${i}].question must be a non-empty string`);
+    }
+    if (typeof a.userAnswer !== "string" || a.userAnswer.trim() === "") {
+      throw new Error(`${fn}: answers[${i}].userAnswer must be a non-empty string`);
+    }
+    const ev = a.evaluation;
+    if (!ev || typeof ev !== "object") {
+      throw new Error(`${fn}: answers[${i}].evaluation must be an object`);
+    }
+    for (const k of ["score", "clarity", "correctness", "depth"] as const) {
+      if (typeof ev[k] !== "number" || !Number.isFinite(ev[k])) {
+        throw new Error(
+          `${fn}: answers[${i}].evaluation.${k} must be a finite number`
+        );
+      }
+    }
+  }
+}
+
+function computeAverageScore(input: SummarizeAttemptInput): number {
+  const sum = input.answers.reduce((acc, a) => acc + a.evaluation.score, 0);
+  return Math.round(sum / input.answers.length);
+}
+
+export async function summarizeInterviewAttempt(
+  input: SummarizeAttemptInput
+): Promise<InterviewAttemptSummary> {
+  validateAttemptInput(input);
+
+  return instrument("summarizeInterviewAttempt", async (ctx) => {
+    const averageScore = computeAverageScore(input);
+    const resolvedScore = clampScore(
+      typeof input.overallScore === "number"
+        ? input.overallScore
+        : averageScore
+    );
+
+    if (isMockMode()) {
+      return { ...mockInterviewAttemptSummary, overallScore: resolvedScore };
+    }
+
+    const prompt = buildSummarizeAttemptPrompt({
+      interviewType: input.interviewType,
+      answers: input.answers,
+      computedAverageScore: averageScore,
+      jobTitle: input.jobTitle,
+      profileSkills: input.profileSkills,
+    });
+    ctx.recordPrompt(prompt);
+
+    const summary = await withOneRetry<InterviewAttemptSummary>(
+      "summarizeInterviewAttempt",
+      prompt,
+      validateInterviewAttemptSummary,
+      ctx.recordOutput
+    );
+
+    return { ...summary, overallScore: resolvedScore };
+  });
+}
+
+export async function parseResume(resumeText: string): Promise<ParsedResume> {
+  return instrument("parseResume", async (ctx) => {
+    if (typeof resumeText !== "string" || resumeText.trim() === "") {
+      throw new Error("parseResume: resumeText must be a non-empty string");
+    }
+
+    const rawHash = sha256Hex(resumeText);
+
+    if (isMockMode()) {
+      return { ...mockParsedResume, raw_text_hash: rawHash };
+    }
+
+    const prompt = buildParseResumePrompt(resumeText);
+    ctx.recordPrompt(prompt);
+    const body = await withOneRetry<Omit<ParsedResume, "raw_text_hash">>(
+      "parseResume",
+      prompt,
+      validateParsedResume,
+      ctx.recordOutput
+    );
+
+    return { ...body, raw_text_hash: rawHash };
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -372,6 +372,7 @@ chaining.
 | `certifications`        | `ParsedResumeCertification[]`           | Always an array.                                                                 |
 | `awards`                | `ParsedResumeAward[]`                   | Always an array.                                                                 |
 | `parsed_metadata`       | `ParsedResumeMetadata`                  | See below.                                                                       |
+| `suggested_skills`      | `SuggestedSkill[]`                      | Prioritized list of skills the candidate likely knows but did NOT list. **Descriptive only — never auto-applied.** See "Suggested skills" below. |
 
 **`ParsedResumeMetadata`**
 
@@ -418,6 +419,30 @@ it and downstream code should tolerate variants gracefully.
 
 - Returns `mockParsedResume` with `raw_text_hash` recomputed from the
   actual input. `callAi` is never invoked.
+
+**Suggested skills.**
+
+- Each entry is `{ skill: string, reason: string, confidence: number }`.
+- `skill` is normalized via `normalizeSkills` (e.g. `"React.js"` → `"react"`).
+- `confidence` is clamped to the inclusive range `0-100` and rounded to an integer.
+- Entries that duplicate any value already present in
+  `skills.technical_skills`, `skills.tools_and_software`, or
+  `projects[].technologies_used` are dropped. Comparison is on the
+  normalized form.
+- The list is deduped by normalized skill and sorted by
+  `confidence` descending, with alphabetical tie-break on `skill`.
+- **Recall over precision.** The prompt asks the AI for 50+ entries
+  whenever the resume has enough signal, and 75-100 for typical
+  software-engineering resumes. Lower-confidence entries (e.g. 30-60)
+  are intentionally included near the bottom of the list rather than
+  trimmed — they exist to populate a user-review screen where the
+  user manually approves each suggestion. In practice a thin resume
+  can yield fewer; an empty array is a legal response.
+- **This field is descriptive only.** The Backend MUST treat it as a
+  "you might also know..." suggestion list to surface to the user.
+  Do NOT merge `suggested_skills` into the user's profile, do NOT pass
+  it into `calculateMatch`, and do NOT use it in any deterministic
+  scoring. The user must approve each suggestion manually.
 
 **Example — realistic `ParsedResume`**
 
@@ -480,7 +505,13 @@ it and downstream code should tolerate variants gracefully.
   "parsed_metadata": {
     "language_detected": "en",
     "years_of_experience_estimate": 1
-  }
+  },
+  "suggested_skills": [
+    { "skill": "redux", "reason": "common state management for React applications.", "confidence": 92 },
+    { "skill": "express", "reason": "default Node web framework given Node + REST experience.", "confidence": 88 },
+    { "skill": "jest", "reason": "standard JavaScript / TypeScript unit testing tool.", "confidence": 86 },
+    { "skill": "tailwind", "reason": "popular utility-first CSS framework alongside React.", "confidence": 78 }
+  ]
 }
 ```
 
@@ -492,6 +523,93 @@ it and downstream code should tolerate variants gracefully.
   persisted resume, skip re-calling `parseResume`.
 - OCR / PDF extraction is NOT Role 4's concern. Pass in plain text only.
 - Resume upload endpoints, file storage, and auth belong to Role 3.
+
+---
+
+### 2.7 `summarizeInterviewAttempt`
+
+```ts
+summarizeInterviewAttempt(input: SummarizeAttemptInput): Promise<InterviewAttemptSummary>
+```
+
+Produces a short structured summary of a completed interview attempt
+(questions + the candidate's answers + per-answer evaluations). The
+Backend persists the result as-is on the user's interview history.
+
+**Input — `SummarizeAttemptInput`**
+
+| Field           | Type                    | Notes                                                                 |
+| --------------- | ----------------------- | --------------------------------------------------------------------- |
+| `interviewType` | `"hr" \| "technical"`   | Must match the interview session.                                     |
+| `answers`       | `AttemptAnswerInput[]`  | Non-empty. Each entry contains the question, the user's answer, and the `AnswerEvaluation` returned by `evaluateAnswer`. |
+| `overallScore`  | `number` *(optional)*   | If provided, this value (clamped to 0-100) is returned verbatim, overriding both the AI's value and the computed average. |
+| `jobTitle`      | `string` *(optional)*   | Target role label for prompt context.                                 |
+| `profileSkills` | `string[]` *(optional)* | Candidate's known skills, for prompt context.                         |
+
+**`AttemptAnswerInput`**
+
+| Field        | Type               | Notes                                                                 |
+| ------------ | ------------------ | --------------------------------------------------------------------- |
+| `questionId` | `string`           | Stable id (e.g. `"q1"`).                                              |
+| `question`   | `string`           | The question text shown to the candidate.                             |
+| `userAnswer` | `string`           | Candidate's answer. Truncated to 2000 chars inside the prompt builder. |
+| `evaluation` | `AnswerEvaluation` | The full evaluation returned by `evaluateAnswer` for this answer.     |
+
+**Output — `InterviewAttemptSummary`**
+
+| Field              | Type       | Meaning                                                                                |
+| ------------------ | ---------- | -------------------------------------------------------------------------------------- |
+| `summary`          | `string`   | 50-800 char paragraph synthesizing the candidate's overall performance.                |
+| `overallScore`     | `number`   | 0-100 integer. See "Score reconciliation" below.                                       |
+| `preserve_points`  | `string[]` | 1-2 short strings (10-200 chars each) — concrete things to keep doing.                 |
+| `improve_points`   | `string[]` | 1-2 short strings (10-200 chars each) — concrete things to work on.                    |
+| `topics_covered`   | `string[]` | 0-15 lowercase, deduped topic tags (≤ 60 chars each).                                  |
+| `overall_feedback` | `string`   | 20-300 char closing note addressed to the candidate.                                   |
+
+**Score reconciliation.**
+
+`overallScore` follows this precedence:
+
+1. `input.overallScore` if provided (clamped to 0-100, rounded).
+2. Otherwise the rounded mean of `input.answers[].evaluation.score`.
+3. The AI's value is used only inside the prompt as a sanity-check signal — it never reaches the returned object.
+
+This keeps the persisted score deterministic and auditable against the per-answer evaluations.
+
+**Validation.**
+
+- Synchronous, before any AI call: `interviewType` enum, non-empty `answers`, every answer must have non-empty `questionId` / `question` / `userAnswer` and a finite-number evaluation. A bad input throws and does NOT consume Gemini quota.
+- AI response: all 6 top-level keys required; string length bounds enforced on `summary` (50-800) and `overall_feedback` (20-300). `preserve_points` / `improve_points` must contain at least one valid entry (10-200 chars), trimmed to 2. `topics_covered` is lowercased + deduped + capped at 15.
+- One retry on parse/validation failure using the existing `withOneRetry` helper.
+
+**Mock mode.**
+
+- Returns `mockInterviewAttemptSummary` with `overallScore` overridden by `input.overallScore` (if provided) or the computed average. `callAi` is never invoked.
+
+**Example — `InterviewAttemptSummary`**
+
+```json
+{
+  "summary": "Across the technical session the candidate showed solid grounding in React and Node fundamentals and was able to walk through reconciliation, async error handling, and TypeScript narrowing with concrete examples. Depth was the weakest dimension — answers were correct but rarely went into trade-offs, alternative designs, or failure modes. Pacing and clarity were consistent throughout.",
+  "overallScore": 76,
+  "preserve_points": [
+    "Continue using small, concrete code examples to ground each explanation.",
+    "Keep the calm pacing and structured framing — it makes the answers easy to follow."
+  ],
+  "improve_points": [
+    "Push answers one layer deeper: name a trade-off, failure mode, or alternative design after the main explanation.",
+    "Tie each answer back to the question's expected focus in the closing sentence."
+  ],
+  "topics_covered": ["react", "node", "typescript", "mongodb", "error-handling", "behavioral"],
+  "overall_feedback": "A well-rounded junior-level performance. Closing the depth gap by routinely calling out a trade-off or edge case would meaningfully raise the score."
+}
+```
+
+**Integration notes for the Backend.**
+
+- Call this AFTER all answers in the attempt have been evaluated via `evaluateAnswer`. The summary is a one-shot, end-of-attempt operation — not a per-question one.
+- Persist the returned object as-is on the user's interview history record. The shape is stable.
+- The function is stateless; it does NOT read from or write to the database.
 
 ---
 

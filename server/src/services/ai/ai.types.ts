@@ -101,6 +101,63 @@ export interface SemanticMatchAiResponse {
 }
 
 /**
+ * AI evaluation of an uploaded home assignment (code submission).
+ * Produced by `evaluateHomeAssignment`; `score` is clamped to 0–100
+ * inside `ai.service.ts` before being returned.
+ */
+export interface HomeAssignmentEvaluation {
+  score: number;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+}
+
+/**
+ * Input for evaluating a home assignment.
+ * Consumed by `evaluateHomeAssignment`.
+ */
+export interface EvaluateHomeAssignmentInput {
+  readonly code: string;
+  readonly language?: string;
+  readonly jobContext?: string;
+}
+
+/**
+ * Repository metadata fed into `analyzeGithubRepo`. Produced by the
+ * backend's GitHub service; this is the AI service's view of it.
+ */
+export interface GithubRepoMetadataInput {
+  fullName: string;
+  description: string | null;
+  primaryLanguage: string | null;
+  languages: string[];
+  stars: number;
+  readme: string | null;
+  packageJson: string | null;
+}
+
+/**
+ * Input for analyzing a GitHub repository.
+ * Consumed by `analyzeGithubRepo`.
+ */
+export interface AnalyzeGithubRepoInput {
+  readonly metadata: GithubRepoMetadataInput;
+}
+
+/**
+ * AI analysis of a GitHub repository.
+ * Produced by `analyzeGithubRepo`; `codeQualityScore` is clamped to 0–100
+ * inside `ai.service.ts` before being returned.
+ */
+export interface GithubRepoAnalysis {
+  architectureSummary: string;
+  codeQualityScore: number;
+  strengths: string[];
+  concerns: string[];
+  detectedStack: string[];
+}
+
+/**
  * Resume-aware extension of `SemanticMatchAiResponse`.
  * Produced when `calculateMatch` is called with a `ParsedResume`.
  * All extra fields are optional qualitative signals — they never
@@ -114,4 +171,47 @@ export interface ResumeAwareSemanticMatchAiResponse
   languageFit?: string;
   resumeInsights?: string[];
   matchingEvidence?: string[];
+}
+
+/**
+ * One answered question inside a completed interview attempt.
+ * Consumed by `summarizeInterviewAttempt`.
+ */
+export interface AttemptAnswerInput {
+  readonly questionId: string;
+  readonly question: string;
+  readonly userAnswer: string;
+  readonly evaluation: AnswerEvaluation;
+}
+
+/**
+ * Input to `summarizeInterviewAttempt`.
+ *
+ * `overallScore` is optional. If provided it overrides any AI- or
+ * average-derived score. If absent, the service computes the mean of
+ * `answers[].evaluation.score`.
+ */
+export interface SummarizeAttemptInput {
+  readonly interviewType: InterviewType;
+  readonly answers: AttemptAnswerInput[];
+  readonly overallScore?: number;
+  readonly jobTitle?: string;
+  readonly profileSkills?: string[];
+}
+
+/**
+ * Structured summary of a finished interview attempt.
+ *
+ * Produced by `summarizeInterviewAttempt`. Persistable as-is on the
+ * user's interview history record. All numeric fields are clamped to
+ * 0-100 and rounded to integers inside `ai.service.ts` before being
+ * returned.
+ */
+export interface InterviewAttemptSummary {
+  summary: string;
+  overallScore: number;
+  preserve_points: string[];
+  improve_points: string[];
+  topics_covered: string[];
+  overall_feedback: string;
 }

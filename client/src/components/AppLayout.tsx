@@ -33,6 +33,14 @@ export function AppLayout() {
               Match
             </NavLink>
             <NavLink
+              to="/applications"
+              className={({ isActive }) =>
+                `${linkClass} ${isActive ? activeClass : ""}`
+              }
+            >
+              Applications
+            </NavLink>
+            <NavLink
               to="/interview"
               className={({ isActive }) =>
                 `${linkClass} ${isActive ? activeClass : ""}`

@@ -8,6 +8,8 @@
 
 jest.mock("../../services/ai/ai.client", () => ({
   callAi: jest.fn(),
+  getActiveModelName: jest.fn(() => "gemini-test-model"),
+  isApiKeyConfigured: jest.fn(() => true),
 }));
 
 import { callAi } from "../../services/ai/ai.client";

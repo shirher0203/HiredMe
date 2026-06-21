@@ -109,6 +109,7 @@ describe("MatchFlow model", () => {
         language_detected: "en",
         years_of_experience_estimate: 3,
       },
+      suggested_skills: [],
     };
 
     const created = await MatchFlowModel.create({
