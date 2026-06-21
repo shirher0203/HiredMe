@@ -1,0 +1,95 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-hiredme}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-hiredme_password}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-hiredme}
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--eval",
+          "db.adminCommand('ping').ok",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - hiredme
+
+  server:
+    build:
+      context: ./server
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-hiredme}:${MONGO_INITDB_ROOT_PASSWORD:-hiredme_password}@mongo:27017/${MONGO_INITDB_DATABASE:-hiredme}?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_characters_for_docker}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_KEY: ${GOOGLE_GENERATIVE_AI_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-lite-latest}
+      USE_MOCK_AI: ${USE_MOCK_AI:-false}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+    volumes:
+      - ./server:/app
+      - server-node-modules:/app/node_modules
+      - server-uploads:/app/uploads
+    ports:
+      - "${SERVER_PORT:-5000}:5000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - hiredme
+
+  client:
+    build:
+      context: ./client
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_started
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:5000}
+      VITE_PROXY_API_TARGET: ${VITE_PROXY_API_TARGET:-http://server:5000}
+    volumes:
+      - ./client:/app
+      - client-node-modules:/app/node_modules
+    ports:
+      - "${CLIENT_PORT:-5173}:5173"
+    networks:
+      - hiredme
+
+volumes:
+  mongo-data:
+  server-node-modules:
+  server-uploads:
+  client-node-modules:
+
+networks:
+  hiredme:
+    driver: bridge

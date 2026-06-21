@@ -47,6 +47,7 @@ temp/
 # Additional environment files
 .env.*.local
 .env*
+!.env.example
 
 # Editors
 .cursor/

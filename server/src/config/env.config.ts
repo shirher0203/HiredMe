@@ -49,9 +49,14 @@ export const envSchema = z
     OPENAI_API_KEY: optionalKeySchema,
     GOOGLE_GENERATIVE_AI_KEY: optionalKeySchema,
     GEMINI_API_KEY: optionalKeySchema,
+    USE_MOCK_AI: z.preprocess(
+      (value) => (value === undefined || value === "" ? "false" : value),
+      z.enum(["true", "false"])
+    ),
   })
   .superRefine((env, ctx) => {
     if (
+      env.USE_MOCK_AI !== "true" &&
       !env.OPENAI_API_KEY &&
       !env.GOOGLE_GENERATIVE_AI_KEY &&
       !env.GEMINI_API_KEY
@@ -59,7 +64,7 @@ export const envSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["OPENAI_API_KEY/GOOGLE_GENERATIVE_AI_KEY/GEMINI_API_KEY"],
-        message: "at least one primary LLM API key is required",
+        message: "at least one primary LLM API key is required when USE_MOCK_AI is not true",
       });
     }
   });
