@@ -31,9 +31,10 @@ export function isApiKeyConfigured(): boolean {
 }
 
 function getModel(): GenerativeModel {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey =
+    process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_KEY;
   if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY");
+    throw new Error("Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_KEY");
   }
 
   const modelName = getActiveModelName();

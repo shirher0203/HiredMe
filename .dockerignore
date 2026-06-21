@@ -1,0 +1,16 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+**/dist
+coverage
+**/coverage
+.env
+.env.*
+!.env.example
+*.log
+helper
+mongo-data
+dump
+.vscode
+.idea

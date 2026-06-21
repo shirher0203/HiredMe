@@ -76,6 +76,7 @@ HIREDME is a full-stack web system composed of:
 ```
 HiredMe/
 ├── client/   # Frontend — React SPA
+├── docker-compose.yml
 └── server/   # Backend — Node.js/Express API
     └── src/
         ├── controllers/   # Request handlers
@@ -88,5 +89,42 @@ HiredMe/
 
 - **client** — the frontend application (user-facing React SPA).
 - **server** — the backend API that serves the client, handles authentication, business logic, database access, and AI integrations.
+
+---
+
+## Docker Usage
+
+The repository includes a Docker Compose setup for local development with hot reload:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Services:
+
+- Client: http://localhost:5173
+- Server API: http://localhost:5000
+- Health check: http://localhost:5000/api/health
+- MongoDB: localhost:27017, with data persisted in the `mongo-data` Docker volume
+
+By default, Docker runs with `USE_MOCK_AI=false`, so provide one of `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_KEY`, or `GEMINI_API_KEY` in `.env`. For offline local development, set `USE_MOCK_AI=true`.
+
+Common commands:
+
+```bash
+docker compose logs -f
+docker compose down
+docker compose down -v   # also removes persisted MongoDB data and node_modules volumes
+```
+
+Production-style images can be built from the Dockerfiles:
+
+```bash
+docker build --target production -t hiredme-server ./server
+docker build --target production -t hiredme-client ./client
+```
+
+The development client calls the backend directly through `VITE_API_BASE_URL=http://localhost:5000`. If `VITE_API_BASE_URL` is empty, Vite can proxy `/api` requests to the `server` container through `VITE_PROXY_API_TARGET`.
 
 ---
