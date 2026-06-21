@@ -9,7 +9,7 @@ calls these from controllers and owns persistence, HTTP, and auth.
 
 ## 1. Overview
 
-The `ai.service` module provides six AI-powered services:
+The `ai.service` module provides nine AI-powered services:
 
 - **Profile analysis** — turn a user's profile into a structured summary.
 - **Job analysis** — extract required/advantage skills and seniority from a
@@ -22,6 +22,14 @@ The `ai.service` module provides six AI-powered services:
   feedback.
 - **Resume parsing** — convert free-text resume content into a strictly
   validated `ParsedResume` that the Backend may persist directly.
+- **Interview attempt summary** — summarize a completed interview/practice
+  attempt into summary, preserve points, improve points, topics, and a
+  deterministic overall score.
+- **Home assignment evaluation** — score an uploaded code submission and
+  return structured strengths/improvements feedback.
+- **GitHub repo analysis** — analyze repository metadata, README, and
+  `package.json` into an architecture summary, code-quality score, and
+  detected stack.
 
 Two runtime modes are supported. **Real Gemini is the default.** Mock
 mode is only a developer / test convenience and must be opted into
