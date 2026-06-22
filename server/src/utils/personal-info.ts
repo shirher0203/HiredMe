@@ -63,6 +63,7 @@ export function buildEmptyProfileWithPersonalInfo(
     parsed_metadata: {
       language_detected: null,
       years_of_experience_estimate: 0,
-    }
+    },
+    suggested_skills: []
   };
 }

@@ -127,4 +127,6 @@ docker build --target production -t hiredme-client ./client
 
 The development client calls the backend directly through `VITE_API_BASE_URL=http://localhost:5000`. If `VITE_API_BASE_URL` is empty, Vite can proxy `/api` requests to the `server` container through `VITE_PROXY_API_TARGET`.
 
+For Nginx in front of the Vite dev server on port `5173`, see [docs/nginx-vite-reverse-proxy.md](docs/nginx-vite-reverse-proxy.md).
+
 ---
