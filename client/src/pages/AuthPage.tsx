@@ -40,7 +40,7 @@ function validateAuth(input: AuthInput, mode: AuthMode): string | null {
 export function AuthPage() {
   const formId = useId();
   const navigate = useNavigate();
-  const location = useLocation();
+  //const location = useLocation();
   const params = useParams();
   const mode = getAuthMode(params.mode);
   const emailId = `${formId}-email`;
