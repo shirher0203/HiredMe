@@ -1,12 +1,12 @@
 import { type FormEvent, useId, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import {
-  evaluateAnswerStatic,
-  staticInterviewQuestions,
-} from "../mocks/interview";
-import type { AnswerEvaluation } from "../types/interview";
+import { evaluateAnswerStatic } from "../mocks/interview";
+import type { AnswerEvaluation, InterviewQuestion } from "../types/interview";
 import { fetchJobsBoard } from "../services/jobs";
+import { createPracticeSession } from "../services/practice";
+import { getUserProfile } from "../services/profile";
 import type { Job } from "../types/jobs";
+import type { ParsedResume } from "../types/parsedResume";
 
 function ScoreBar({
   label,
@@ -115,26 +115,31 @@ function ReviewPanel({
 
 export function InterviewPage() {
   const formId = useId();
-  const questions = staticInterviewQuestions;
-  const total = questions.length;
 
-  const [jobs, setJobs] = useState<Job[] | null>(null);
+    const [jobs, setJobs] = useState<Job[] | null>(null);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [startingPractice, setStartingPractice] = useState(false);
+  const [practiceSessionId, setPracticeSessionId] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<ParsedResume | null>(null);
+  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
 
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState("");
   const [submittedAnswer, setSubmittedAnswer] = useState<string | null>(null);
-  const [evaluation, setEvaluation] = useState<AnswerEvaluation | null>(
-    null,
-  );
+  const [evaluation, setEvaluation] = useState<AnswerEvaluation | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const current = questions[step];
+  const total = questions.length;
   const progressLabel = `Question ${step + 1} of ${total}`;
   const answerFieldId = `${formId}-answer`;
+  const selectedJob = selectedJobId
+    ? jobs?.find((job) => job.id === selectedJobId) ?? null
+    : null;
+  const current = questions[step];
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -173,6 +178,19 @@ export function InterviewPage() {
     }
 
     load();
+
+    async function loadProfile() {
+      try {
+        const profile = await getUserProfile();
+        if (!mounted) return;
+        setUserProfile(profile.profile);
+      } catch {
+        // Keep going without profile, backend can still use jobId.
+      }
+    }
+
+    loadProfile();
+
     return () => {
       mounted = false;
     };
@@ -195,6 +213,46 @@ export function InterviewPage() {
     setLoading(false);
   }
 
+  async function startPractice() {
+    if (startingPractice) return;
+    const jobIdToUse = pendingJobId ?? jobs?.[0]?.id;
+    if (!jobIdToUse) return;
+
+    setSessionError(null);
+    setStartingPractice(true);
+    try {
+      const profileSkills = userProfile
+        ? Array.from(
+            new Set([
+              ...(userProfile.skills.technical_skills ?? []),
+              ...(userProfile.skills.soft_skills ?? []),
+              ...(userProfile.skills.tools_and_software ?? []),
+            ])
+          )
+        : undefined;
+      const language = userProfile?.parsed_metadata.language_detected === "he" ? "he" : "en";
+
+      const session = await createPracticeSession({
+        interviewType: "technical",
+        jobId: jobIdToUse,
+        count: 5,
+        profileSkills,
+        language,
+      });
+      setQuestions(session.questions);
+      setPracticeSessionId(session._id);
+      setSelectedJobId(jobIdToUse);
+      setStep(0);
+      setDraft("");
+      setSubmittedAnswer(null);
+      setEvaluation(null);
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : "Failed to create practice session.");
+    } finally {
+      setStartingPractice(false);
+    }
+  }
+
   const isComplete = step >= total - 1 && evaluation !== null;
   const canSubmit =
     draft.trim().length > 0 && !loading && evaluation === null;
@@ -214,8 +272,9 @@ export function InterviewPage() {
               ) : jobsError ? (
                 <p className="text-sm text-red-600">{jobsError}</p>
               ) : jobs && jobs.length > 0 ? (
-                <div className="flex items-center gap-3">
-                  <select
+                <>
+                  <div className="flex items-center gap-3">
+                    <select
                     value={pendingJobId ?? ""}
                     onChange={(e) => setPendingJobId(e.target.value || null)}
                     className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
@@ -229,18 +288,17 @@ export function InterviewPage() {
                   </select>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (pendingJobId) {
-                        setSelectedJobId(pendingJobId);
-                      } else if (jobs && jobs.length > 0) {
-                        setSelectedJobId(jobs[0].id);
-                      }
-                    }}
-                    className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+                    onClick={startPractice}
+                    disabled={startingPractice || !pendingJobId}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Start practice
+                    {startingPractice ? "Starting…" : "Start practice"}
                   </button>
                 </div>
+                  {sessionError ? (
+                    <p className="mt-3 text-sm text-red-600">{sessionError}</p>
+                  ) : null}
+                </>
               ) : (
                 <div className="mt-2 flex items-center gap-3">
                   <p className="text-sm text-slate-600">No applications found.</p>
@@ -276,8 +334,13 @@ export function InterviewPage() {
             </header>
 
             <div className="mb-6">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-600">{progressLabel}</span>
+              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="font-medium text-slate-600">{progressLabel}</span>
+                  {selectedJob ? (
+                    <p className="text-sm text-slate-500">Practicing for {selectedJob.company ? `${selectedJob.company} — ` : ""}{selectedJob.title}</p>
+                  ) : null}
+                </div>
                 <span className="text-slate-500">
                   {Math.round(((step + 1) / total) * 100)}%
                 </span>
