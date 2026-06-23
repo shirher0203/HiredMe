@@ -1,5 +1,5 @@
 import { getAuthSession } from "./auth";
-import type { InterviewQuestion, InterviewType } from "../types/interview";
+import type { InterviewQuestion, InterviewType, AnswerEvaluation } from "../types/interview";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -21,6 +21,15 @@ export interface CreatePracticeSessionInput {
   language?: "he" | "en";
   profileSkills?: string[];
   jobRequiredSkills?: string[];
+}
+
+export interface InterviewAttemptSummary {
+  summary: string;
+  overallScore: number;
+  preserve_points: string[];
+  improve_points: string[];
+  topics_covered: string[];
+  overall_feedback: string;
 }
 
 function requireAuthHeaders(): HeadersInit {
@@ -69,5 +78,34 @@ export async function createPracticeSession(
       body: JSON.stringify(input),
     },
     "Failed to create practice session."
+  );
+}
+
+export async function sendPracticeMessage(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string
+): Promise<{ evaluation: AnswerEvaluation }> {
+  return requestJson<{ evaluation: AnswerEvaluation }>(
+    `/api/practice/sessions/${sessionId}/msg`,
+    {
+      method: "POST",
+      headers: requireAuthHeaders(),
+      body: JSON.stringify({ questionId, userAnswer }),
+    },
+    "Failed to evaluate answer."
+  );
+}
+
+export async function getPracticeSummary(
+  sessionId: string
+): Promise<InterviewAttemptSummary> {
+  return requestJson<InterviewAttemptSummary>(
+    `/api/practice/sessions/${sessionId}/summary`,
+    {
+      method: "GET",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to get practice summary."
   );
 }

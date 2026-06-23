@@ -4,6 +4,7 @@ import {
   completePracticeSession,
   createPracticeSession,
   sendPracticeMessage,
+  getPracticeSummary,
 } from "../controllers/practice.controller";
 import { validate } from "../middlewares/validate.middleware";
 
@@ -27,3 +28,4 @@ practiceRouter.post(
 );
 practiceRouter.post("/sessions/:id/msg", sendPracticeMessage);
 practiceRouter.patch("/sessions/:id/complete", completePracticeSession);
+practiceRouter.get("/sessions/:id/summary", getPracticeSummary);
