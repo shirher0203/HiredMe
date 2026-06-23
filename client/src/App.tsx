@@ -12,7 +12,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/match" replace />} />
+          <Route index element={<Navigate to="/auth/login" replace />} />
           <Route path="match" element={<FitPreviewPage />} />
           <Route path="match/result" element={<MatchResultPage />} />
           <Route path="profile" element={<ProfilePage />} />

@@ -1,9 +1,12 @@
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   evaluateAnswerStatic,
   staticInterviewQuestions,
 } from "../mocks/interview";
 import type { AnswerEvaluation } from "../types/interview";
+import { fetchJobsBoard } from "../services/jobs";
+import type { Job } from "../types/jobs";
 
 function ScoreBar({
   label,
@@ -115,6 +118,12 @@ export function InterviewPage() {
   const questions = staticInterviewQuestions;
   const total = questions.length;
 
+  const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [pendingJobId, setPendingJobId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState("");
   const [submittedAnswer, setSubmittedAnswer] = useState<string | null>(null);
@@ -143,6 +152,32 @@ export function InterviewPage() {
     }
   }
 
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      setJobsLoading(true);
+      setJobsError(null);
+      try {
+        const board = await fetchJobsBoard();
+        if (!mounted) return;
+        const list = Object.values(board).flat();
+        setJobs(list);
+      } catch (err) {
+        if (!mounted) return;
+        setJobsError(err instanceof Error ? err.message : String(err));
+        setJobs([]);
+      } finally {
+        if (!mounted) return;
+        setJobsLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   function goNext() {
     if (step >= total - 1) return;
     setStep((s) => s + 1);
@@ -167,54 +202,104 @@ export function InterviewPage() {
   return (
     <div className="min-h-full bg-gradient-to-br from-indigo-50/50 via-white to-violet-50/40">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
-        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
-                Interview practice
-              </span>
-            </h1>
-            <p className="mt-3 max-w-2xl text-lg text-slate-600">
-              Answer each question in your own words. After you submit, you will
-              see feedback shaped like the live AI evaluation (static demo—no
-              backend yet).
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={restartFromBeginning}
-            disabled={loading}
-            className="shrink-0 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:from-indigo-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Finish test
-          </button>
-        </header>
+        {/* Application selector: require user to pick an application before practicing */}
+        {!selectedJobId && (
+          <section className="mb-8 rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-900">Select an application to practice for</h3>
+            <p className="mt-2 text-sm text-slate-600">Choose one of your saved applications so the practice can be tailored to that role.</p>
 
-        <div className="mb-6">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium text-slate-600">{progressLabel}</span>
-            <span className="text-slate-500">
-              {Math.round(((step + 1) / total) * 100)}%
-            </span>
-          </div>
-          <div
-            className="h-2 overflow-hidden rounded-full bg-slate-200/90"
-            role="progressbar"
-            aria-valuenow={step + 1}
-            aria-valuemin={1}
-            aria-valuemax={total}
-            aria-label={progressLabel}
-          >
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-[width] duration-300"
-              style={{
-                width: `${((step + 1) / total) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
+            <div className="mt-4">
+              {jobsLoading ? (
+                <p className="text-sm text-slate-500">Loading your applications...</p>
+              ) : jobsError ? (
+                <p className="text-sm text-red-600">{jobsError}</p>
+              ) : jobs && jobs.length > 0 ? (
+                <div className="flex items-center gap-3">
+                  <select
+                    value={pendingJobId ?? ""}
+                    onChange={(e) => setPendingJobId(e.target.value || null)}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="">-- pick an application --</option>
+                    {jobs.map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.company ? `${j.company} — ${j.title}` : j.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (pendingJobId) {
+                        setSelectedJobId(pendingJobId);
+                      } else if (jobs && jobs.length > 0) {
+                        setSelectedJobId(jobs[0].id);
+                      }
+                    }}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Start practice
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-center gap-3">
+                  <p className="text-sm text-slate-600">No applications found.</p>
+                  <Link to="/applications" className="text-sm font-semibold text-indigo-700">Go to Applications</Link>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+        {selectedJobId && (
+          <>
+            <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                  <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+                    Interview practice
+                  </span>
+                </h1>
+                <p className="mt-3 max-w-2xl text-lg text-slate-600">
+                  Answer each question in your own words. After you submit, you will
+                  see feedback shaped like the live AI evaluation (static demo—no
+                  backend yet).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={restartFromBeginning}
+                disabled={loading}
+                className="shrink-0 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:from-indigo-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Finish test
+              </button>
+            </header>
 
-        <section className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/40 p-6 shadow-md shadow-indigo-500/5 ring-1 ring-indigo-500/10 sm:p-8">
+            <div className="mb-6">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="font-medium text-slate-600">{progressLabel}</span>
+                <span className="text-slate-500">
+                  {Math.round(((step + 1) / total) * 100)}%
+                </span>
+              </div>
+              <div
+                className="h-2 overflow-hidden rounded-full bg-slate-200/90"
+                role="progressbar"
+                aria-valuenow={step + 1}
+                aria-valuemin={1}
+                aria-valuemax={total}
+                aria-label={progressLabel}
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-[width] duration-300"
+                  style={{
+                    width: `${((step + 1) / total) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <section className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/40 p-6 shadow-md shadow-indigo-500/5 ring-1 ring-indigo-500/10 sm:p-8">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-800">
               {current.topic}
@@ -285,6 +370,8 @@ export function InterviewPage() {
             </p>
           )}
         </section>
+          </>
+        )}
       </div>
     </div>
   );

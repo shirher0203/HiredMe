@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { clearAuthSession, getAuthSession } from "../services/auth";
 
 const linkClass =
@@ -8,7 +9,20 @@ const activeClass =
   "bg-indigo-50 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-700";
 
 export function AppLayout() {
-  const session = getAuthSession();
+  const [session, setSession] = useState(getAuthSession());
+
+  useEffect(() => {
+    function handle() {
+      setSession(getAuthSession());
+    }
+
+    window.addEventListener("authchange", handle);
+    window.addEventListener("storage", handle);
+    return () => {
+      window.removeEventListener("authchange", handle);
+      window.removeEventListener("storage", handle);
+    };
+  }, []);
 
   function logout() {
     clearAuthSession();

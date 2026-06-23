@@ -40,7 +40,7 @@ function validateAuth(input: AuthInput, mode: AuthMode): string | null {
 export function AuthPage() {
   const formId = useId();
   const navigate = useNavigate();
-  //const location = useLocation();
+  const location = useLocation();
   const params = useParams();
   const mode = getAuthMode(params.mode);
   const emailId = `${formId}-email`;
@@ -50,7 +50,7 @@ export function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [location, setLocation] = useState("");
+  const [candidateLocation, setCandidateLocation] = useState("");
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [portfolioOrGithubUrl, setPortfolioOrGithubUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +92,7 @@ export function AuthPage() {
             personalInfo: {
               fullName: fullName.trim(),
               phone: phone.trim(),
-              location: location.trim(),
+              location: candidateLocation.trim(),
               linkedinUrl: linkedinUrl.trim(),
               portfolioOrGithubUrl: portfolioOrGithubUrl.trim(),
             },
@@ -111,7 +111,7 @@ export function AuthPage() {
         mode === "register" ? await register(input) : await login(input);
       saveAuthSession(session);
       const redirect = location.state as AuthRedirectState | null;
-      const destination = redirect?.from ?? "/match";
+      const destination = redirect?.from ?? "/profile";
       if (redirect?.matchResult !== undefined) {
         navigate(destination, { replace: true, state: redirect.matchResult });
       } else {
@@ -216,9 +216,9 @@ export function AuthPage() {
                         name="location"
                         type="text"
                         autoComplete="address-level2"
-                        value={location}
+                        value={candidateLocation}
                         onChange={(e) => {
-                          setLocation(e.target.value);
+                          setCandidateLocation(e.target.value);
                           setError(null);
                         }}
                         disabled={loading}
