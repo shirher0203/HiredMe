@@ -85,6 +85,22 @@ function optionalStatus(raw: unknown): JobStatus | undefined {
   return requireStatus(raw);
 }
 
+const SCHEDULE_DURATION_MS = 60 * 60 * 1000;
+
+function serializeScheduledInterview(raw: unknown) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const value = raw as { startAt?: unknown; endAt?: unknown };
+  if (!value.startAt || !value.endAt) {
+    return null;
+  }
+  const startAt =
+    value.startAt instanceof Date ? value.startAt.toISOString() : String(value.startAt);
+  const endAt = value.endAt instanceof Date ? value.endAt.toISOString() : String(value.endAt);
+  return { startAt, endAt };
+}
+
 function serializeJob(job: Record<string, unknown>) {
   return {
     id: String(job._id),
@@ -97,9 +113,24 @@ function serializeJob(job: Record<string, unknown>) {
     jobUrl: job.jobUrl ?? null,
     source: job.source ?? "manual",
     matchAnalysis: job.matchAnalysis ?? null,
+    scheduledInterview: serializeScheduledInterview(job.scheduledInterview),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function requireFutureStartAt(raw: unknown): Date {
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw new HttpError(400, "VALIDATION_ERROR", "startAt is required");
+  }
+  const startAt = new Date(raw);
+  if (Number.isNaN(startAt.getTime())) {
+    throw new HttpError(400, "VALIDATION_ERROR", "startAt must be a valid ISO8601 datetime");
+  }
+  if (startAt.getTime() <= Date.now()) {
+    throw new HttpError(400, "VALIDATION_ERROR", "startAt must be in the future");
+  }
+  return startAt;
 }
 
 function requireStatus(raw: unknown): JobStatus {
@@ -281,6 +312,60 @@ export async function deleteJob(req: Request, res: Response, next: NextFunction)
       throw new HttpError(404, "NOT_FOUND", "Job not found");
     }
     return res.status(200).json({ id: String(job._id) });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function scheduleJob(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = requireUser(req);
+    const jobId = requireIdParam(req.params.id);
+    const startAt = requireFutureStartAt(req.body?.startAt);
+    const endAt = new Date(startAt.getTime() + SCHEDULE_DURATION_MS);
+
+    const existing = await JobModel.findOne({
+      _id: asObjectId(jobId),
+      userId: asObjectId(userId),
+    }).lean();
+    if (!existing) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    if (existing.status !== "technical") {
+      throw new HttpError(
+        409,
+        "CONFLICT",
+        "Interviews can only be scheduled for jobs in the Technical Interview stage"
+      );
+    }
+
+    const job = await JobModel.findOneAndUpdate(
+      { _id: asObjectId(jobId), userId: asObjectId(userId) },
+      { $set: { scheduledInterview: { startAt, endAt } } },
+      { returnDocument: "after" }
+    ).lean();
+    if (!job) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    return res.status(200).json(serializeJob(job as Record<string, unknown>));
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function unscheduleJob(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = requireUser(req);
+    const jobId = requireIdParam(req.params.id);
+    const job = await JobModel.findOneAndUpdate(
+      { _id: asObjectId(jobId), userId: asObjectId(userId) },
+      { $set: { scheduledInterview: null } },
+      { returnDocument: "after" }
+    ).lean();
+    if (!job) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    return res.status(200).json(serializeJob(job as Record<string, unknown>));
   } catch (err) {
     return next(err);
   }

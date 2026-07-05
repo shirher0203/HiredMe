@@ -282,15 +282,6 @@ export function ProfilePage() {
     event.target.value = "";
   }
 
-  if (!session) {
-    return (
-      <section className="mx-auto max-w-3xl px-4 py-16 text-center sm:px-6">
-        <h1 className="text-3xl font-semibold text-slate-950">Profile</h1>
-        <p className="mt-3 text-slate-600">Log in to manage your CV profile.</p>
-      </section>
-    );
-  }
-
   if (isLoading) {
     return (
       <section className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">

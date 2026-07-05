@@ -18,6 +18,11 @@ interface ApiErrorBody {
   };
 }
 
+interface RawScheduledInterview {
+  startAt?: string;
+  endAt?: string;
+}
+
 interface RawJobRecord {
   id?: string;
   _id?: string;
@@ -30,6 +35,7 @@ interface RawJobRecord {
   jobUrl?: string | null;
   source?: string;
   matchAnalysis?: MatchAnalysis | null;
+  scheduledInterview?: RawScheduledInterview | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -72,6 +78,13 @@ function normalizeSource(raw: unknown): JobSource {
   return "manual";
 }
 
+function normalizeScheduledInterview(raw: RawScheduledInterview | null | undefined) {
+  if (!raw?.startAt || !raw?.endAt) {
+    return null;
+  }
+  return { startAt: raw.startAt, endAt: raw.endAt };
+}
+
 export function normalizeJob(raw: RawJobRecord): Job {
   const id = raw.id ?? (raw._id ? String(raw._id) : "");
   return {
@@ -85,6 +98,7 @@ export function normalizeJob(raw: RawJobRecord): Job {
     jobUrl: raw.jobUrl ?? null,
     source: normalizeSource(raw.source),
     matchAnalysis: raw.matchAnalysis ?? null,
+    scheduledInterview: normalizeScheduledInterview(raw.scheduledInterview),
     createdAt: raw.createdAt ?? new Date(0).toISOString(),
     updatedAt: raw.updatedAt ?? new Date(0).toISOString(),
   };
@@ -187,4 +201,31 @@ export async function deleteJob(id: string): Promise<void> {
     },
     "Failed to delete application."
   );
+}
+
+export async function scheduleJob(id: string, startAt: string): Promise<Job> {
+  const raw = await requestJson<RawJobRecord>(
+    `/api/jobs/${id}/schedule`,
+    {
+      method: "POST",
+      headers: requireAuthHeaders(),
+      body: JSON.stringify({ startAt }),
+    },
+    "Failed to schedule interview."
+  );
+
+  return normalizeJob(raw);
+}
+
+export async function unscheduleJob(id: string): Promise<Job> {
+  const raw = await requestJson<RawJobRecord>(
+    `/api/jobs/${id}/schedule`,
+    {
+      method: "DELETE",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to unschedule interview."
+  );
+
+  return normalizeJob(raw);
 }

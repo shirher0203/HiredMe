@@ -10,15 +10,22 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { getAuthSession } from "../services/auth";
 import {
   createJob,
   deleteJob,
   fetchJobsBoard,
+  scheduleJob as scheduleJobApi,
+  unscheduleJob as unscheduleJobApi,
   updateJob,
   updateJobStatus,
 } from "../services/jobs";
+import {
+  buildGoogleCalendarTemplateUrl,
+  buildInterviewCalendarTitle,
+  openGoogleCalendarEvent,
+} from "../utils/googleCalendar";
 import {
   JOB_STATUSES,
   JOB_STATUS_LABELS,
@@ -47,6 +54,36 @@ function formatDate(iso: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function defaultTomorrowAt2pm(): Date {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(14, 0, 0, 0);
+  return date;
+}
+
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDatetimeLocalValue(value: string): Date | null {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
 }
 
 function findColumnForJob(board: JobsBoard, jobId: string): JobStatus | null {
@@ -114,14 +151,21 @@ function ApplicationCardContent({
   job,
   onEdit,
   onDelete,
+  onSchedule,
+  onReschedule,
+  onUnschedule,
   isDragging,
 }: {
   job: Job;
   onEdit: () => void;
   onDelete: () => void;
+  onSchedule?: () => void;
+  onReschedule?: () => void;
+  onUnschedule?: () => void;
   isDragging?: boolean;
 }) {
   const href = job.contact ? contactHref(job.contact) : null;
+  const showScheduleActions = job.status === "technical";
 
   return (
     <article
@@ -182,9 +226,54 @@ function ApplicationCardContent({
           <dt className="sr-only">Applied</dt>
           <dd>Applied {formatDate(job.createdAt)}</dd>
         </div>
+        {job.scheduledInterview ? (
+          <div>
+            <dt className="sr-only">Scheduled interview</dt>
+            <dd className="font-medium text-indigo-700">
+              Scheduled {formatDateTime(job.scheduledInterview.startAt)}
+            </dd>
+          </div>
+        ) : null}
       </dl>
 
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
+        {showScheduleActions ? (
+          job.scheduledInterview ? (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReschedule?.();
+                }}
+                className="rounded-lg px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+              >
+                Reschedule
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnschedule?.();
+                }}
+                className="rounded-lg px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50"
+              >
+                Unschedule
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSchedule?.();
+              }}
+              className="rounded-lg px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+            >
+              Schedule
+            </button>
+          )
+        ) : null}
         <button
           type="button"
           onClick={(e) => {
@@ -214,10 +303,16 @@ function DraggableApplicationCard({
   job,
   onEdit,
   onDelete,
+  onSchedule,
+  onReschedule,
+  onUnschedule,
 }: {
   job: Job;
   onEdit: () => void;
   onDelete: () => void;
+  onSchedule?: () => void;
+  onReschedule?: () => void;
+  onUnschedule?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: job.id,
@@ -230,7 +325,15 @@ function DraggableApplicationCard({
 
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes} className="cursor-grab active:cursor-grabbing">
-      <ApplicationCardContent job={job} onEdit={onEdit} onDelete={onDelete} isDragging={isDragging} />
+      <ApplicationCardContent
+        job={job}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onSchedule={onSchedule}
+        onReschedule={onReschedule}
+        onUnschedule={onUnschedule}
+        isDragging={isDragging}
+      />
     </div>
   );
 }
@@ -240,11 +343,17 @@ function BoardColumn({
   jobs,
   onEdit,
   onDelete,
+  onSchedule,
+  onReschedule,
+  onUnschedule,
 }: {
   status: JobStatus;
   jobs: Job[];
   onEdit: (job: Job) => void;
   onDelete: (job: Job) => void;
+  onSchedule: (job: Job) => void;
+  onReschedule: (job: Job) => void;
+  onUnschedule: (job: Job) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
@@ -270,10 +379,116 @@ function BoardColumn({
             job={job}
             onEdit={() => onEdit(job)}
             onDelete={() => onDelete(job)}
+            onSchedule={() => onSchedule(job)}
+            onReschedule={() => onReschedule(job)}
+            onUnschedule={() => onUnschedule(job)}
           />
         ))}
       </div>
     </section>
+  );
+}
+
+function ScheduleModal({
+  job,
+  mode,
+  onClose,
+  onSubmit,
+  submitting,
+  error,
+}: {
+  job: Job;
+  mode: "schedule" | "reschedule";
+  onClose: () => void;
+  onSubmit: (startAt: Date) => Promise<void>;
+  submitting: boolean;
+  error: string | null;
+}) {
+  const datetimeId = useId();
+  const initialDate =
+    mode === "reschedule" && job.scheduledInterview
+      ? new Date(job.scheduledInterview.startAt)
+      : defaultTomorrowAt2pm();
+  const [datetimeValue, setDatetimeValue] = useState(toDatetimeLocalValue(initialDate));
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const hint =
+    mode === "reschedule"
+      ? "If you already saved this interview in Google Calendar, delete the old event after adding the new one."
+      : "You'll confirm the event in Google Calendar after clicking Save.";
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setLocalError(null);
+    const startAt = fromDatetimeLocalValue(datetimeValue);
+    if (!startAt) {
+      setLocalError("Please choose a valid date and time.");
+      return;
+    }
+    if (startAt.getTime() <= Date.now()) {
+      setLocalError("Please choose a future date and time.");
+      return;
+    }
+    await onSubmit(startAt);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-indigo-100 bg-white p-6 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="schedule-form-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="schedule-form-title" className="text-lg font-semibold text-slate-900">
+          {mode === "reschedule" ? "Reschedule interview" : "Schedule interview"}
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">{job.title}</p>
+
+        <form className="mt-5 space-y-4" noValidate onSubmit={handleSubmit}>
+          <div>
+            <label htmlFor={datetimeId} className="mb-1 block text-sm font-medium text-slate-700">
+              Date and time
+            </label>
+            <input
+              id={datetimeId}
+              type="datetime-local"
+              value={datetimeValue}
+              onChange={(e) => setDatetimeValue(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
+
+          <p className="text-xs text-slate-500">{hint}</p>
+
+          {localError || error ? (
+            <p className="text-sm text-red-600">{localError ?? error}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:from-indigo-500 hover:to-violet-500 disabled:opacity-60"
+            >
+              {submitting ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -505,9 +720,12 @@ export function ApplicationsBoardPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [modal, setModal] = useState<"create" | "edit" | null>(null);
+  const [schedulingJob, setSchedulingJob] = useState<Job | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<"schedule" | "reschedule">("schedule");
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -530,10 +748,6 @@ export function ApplicationsBoardPage() {
     }
     void loadBoard();
   }, [authToken, loadBoard]);
-
-  if (!session) {
-    return <Navigate to="/auth/login" replace state={{ from: "/applications" }} />;
-  }
 
   function resolveDropStatus(overId: string | number): JobStatus | null {
     if (!board) {
@@ -623,6 +837,57 @@ export function ApplicationsBoardPage() {
     }
   }
 
+  function openScheduleModal(job: Job, mode: "schedule" | "reschedule") {
+    setScheduleError(null);
+    setSchedulingJob(job);
+    setScheduleMode(mode);
+  }
+
+  async function handleScheduleSave(startAt: Date) {
+    if (!schedulingJob) {
+      return;
+    }
+    setSubmitting(true);
+    setScheduleError(null);
+    try {
+      const updated = await scheduleJobApi(schedulingJob.id, startAt.toISOString());
+      setBoard((current) => replaceJobInBoard(current ?? emptyBoard(), updated));
+      const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
+      const url = buildGoogleCalendarTemplateUrl({
+        title: buildInterviewCalendarTitle(updated),
+        startAt,
+        endAt,
+      });
+      openGoogleCalendarEvent(url);
+      setSchedulingJob(null);
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Failed to schedule interview.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleUnschedule(job: Job) {
+    const confirmed = window.confirm(
+      "Remove this interview schedule from HiredMe?\n\nThis removes the schedule from HiredMe only. Delete the event manually in Google Calendar if you added it there."
+    );
+    if (!confirmed) {
+      return;
+    }
+    const previous = board;
+    setBoard((current) =>
+      replaceJobInBoard(current ?? emptyBoard(), { ...job, scheduledInterview: null })
+    );
+    setError(null);
+    try {
+      const updated = await unscheduleJobApi(job.id);
+      setBoard((current) => replaceJobInBoard(current ?? emptyBoard(), updated));
+    } catch (err) {
+      setBoard(previous);
+      setError(err instanceof Error ? err.message : "Failed to unschedule interview.");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50">
       <div className="mx-auto max-w-[100vw] px-4 py-8 sm:px-6 lg:px-8">
@@ -671,6 +936,9 @@ export function ApplicationsBoardPage() {
                     setModal("edit");
                   }}
                   onDelete={handleDelete}
+                  onSchedule={(job) => openScheduleModal(job, "schedule")}
+                  onReschedule={(job) => openScheduleModal(job, "reschedule")}
+                  onUnschedule={handleUnschedule}
                 />
               ))}
             </div>
@@ -725,6 +993,21 @@ export function ApplicationsBoardPage() {
           onSubmit={handleEdit}
           submitting={submitting}
           error={formError}
+        />
+      ) : null}
+
+      {schedulingJob ? (
+        <ScheduleModal
+          key={`${schedulingJob.id}-${scheduleMode}`}
+          job={schedulingJob}
+          mode={scheduleMode}
+          onClose={() => {
+            setSchedulingJob(null);
+            setScheduleError(null);
+          }}
+          onSubmit={handleScheduleSave}
+          submitting={submitting}
+          error={scheduleError}
         />
       ) : null}
     </div>

@@ -14,6 +14,11 @@ export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export type JobSource = "manual" | "match";
 
+export interface ScheduledInterview {
+  startAt: string;
+  endAt: string;
+}
+
 export interface Job {
   id: string;
   title: string;
@@ -25,6 +30,7 @@ export interface Job {
   jobUrl: string | null;
   source: JobSource;
   matchAnalysis: MatchAnalysis | null;
+  scheduledInterview: ScheduledInterview | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -37,39 +37,43 @@ export function AppLayout() {
             HiredMe
           </span>
           <nav className="flex items-center gap-1" aria-label="Main">
-            <NavLink
-              to="/match"
-              className={({ isActive }) =>
-                `${linkClass} ${isActive ? activeClass : ""}`
-              }
-              end
-            >
-              Match
-            </NavLink>
-            <NavLink
-              to="/applications"
-              className={({ isActive }) =>
-                `${linkClass} ${isActive ? activeClass : ""}`
-              }
-            >
-              Applications
-            </NavLink>
-            <NavLink
-              to="/interview"
-              className={({ isActive }) =>
-                `${linkClass} ${isActive ? activeClass : ""}`
-              }
-            >
-              Interview
-            </NavLink>
-            <NavLink
-              to="/profile"
-              className={({ isActive }) =>
-                `${linkClass} ${isActive ? activeClass : ""}`
-              }
-            >
-              Profile
-            </NavLink>
+            {session && (
+              <>
+                <NavLink
+                  to="/match"
+                  className={({ isActive }) =>
+                    `${linkClass} ${isActive ? activeClass : ""}`
+                  }
+                  end
+                >
+                  Match
+                </NavLink>
+                <NavLink
+                  to="/applications"
+                  className={({ isActive }) =>
+                    `${linkClass} ${isActive ? activeClass : ""}`
+                  }
+                >
+                  Applications
+                </NavLink>
+                <NavLink
+                  to="/interview"
+                  className={({ isActive }) =>
+                    `${linkClass} ${isActive ? activeClass : ""}`
+                  }
+                >
+                  Interview
+                </NavLink>
+                <NavLink
+                  to="/profile"
+                  className={({ isActive }) =>
+                    `${linkClass} ${isActive ? activeClass : ""}`
+                  }
+                >
+                  Profile
+                </NavLink>
+              </>
+            )}
             {session ? (
               <button
                 type="button"

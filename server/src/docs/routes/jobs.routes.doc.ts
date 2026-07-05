@@ -152,4 +152,53 @@ export const jobsPaths = {
       },
     },
   },
+  "/api/jobs/{id}/schedule": {
+    post: {
+      tags: ["Jobs"],
+      summary: "Schedule a technical interview for a job",
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: "path",
+          name: "id",
+          required: true,
+          schema: { type: "string" },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["startAt"],
+              properties: {
+                startAt: { type: "string", format: "date-time" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": { description: "Interview scheduled" },
+        "409": { description: "Job is not in Technical Interview stage" },
+      },
+    },
+    delete: {
+      tags: ["Jobs"],
+      summary: "Remove scheduled interview from a job",
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: "path",
+          name: "id",
+          required: true,
+          schema: { type: "string" },
+        },
+      ],
+      responses: {
+        "200": { description: "Interview unscheduled" },
+      },
+    },
+  },
 };

@@ -40,6 +40,14 @@ const matchAnalysisSchema = new Schema(
   { _id: false }
 );
 
+const scheduledInterviewSchema = new Schema(
+  {
+    startAt: { type: Date, required: true },
+    endAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
+
 const jobSchema = new Schema(
   {
     userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
@@ -62,6 +70,7 @@ const jobSchema = new Schema(
     matchAnalysis: { type: matchAnalysisSchema },
     matchAnalysisHash: { type: String },
     matchAnalyzedAt: { type: Date },
+    scheduledInterview: { type: scheduledInterviewSchema, default: null },
   },
   { timestamps: true }
 );
