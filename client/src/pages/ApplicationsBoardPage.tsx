@@ -29,6 +29,8 @@ import {
 import {
   JOB_STATUSES,
   JOB_STATUS_LABELS,
+  getScheduledStages,
+  getStageSchedule,
   isSchedulableJobStatus,
   type CreateJobInput,
   type Job,
@@ -167,6 +169,8 @@ function ApplicationCardContent({
 }) {
   const href = job.contact ? contactHref(job.contact) : null;
   const showScheduleActions = isSchedulableJobStatus(job.status);
+  const currentStageSchedule = getStageSchedule(job, job.status);
+  const scheduledStages = getScheduledStages(job);
 
   return (
     <article
@@ -227,19 +231,25 @@ function ApplicationCardContent({
           <dt className="sr-only">Applied</dt>
           <dd>Applied {formatDate(job.createdAt)}</dd>
         </div>
-        {job.scheduledInterview ? (
-          <div>
-            <dt className="sr-only">Scheduled interview</dt>
-            <dd className="font-medium text-indigo-700">
-              Scheduled {formatDateTime(job.scheduledInterview.startAt)}
+        {scheduledStages.map(({ status, schedule }) => (
+          <div key={status}>
+            <dt className="sr-only">{JOB_STATUS_LABELS[status]}</dt>
+            <dd
+              className={
+                status === job.status
+                  ? "font-medium text-indigo-700"
+                  : "text-slate-500"
+              }
+            >
+              {JOB_STATUS_LABELS[status]} · {formatDateTime(schedule.startAt)}
             </dd>
           </div>
-        ) : null}
+        ))}
       </dl>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {showScheduleActions ? (
-          job.scheduledInterview ? (
+          currentStageSchedule ? (
             <>
               <button
                 type="button"
@@ -406,9 +416,11 @@ function ScheduleModal({
   error: string | null;
 }) {
   const datetimeId = useId();
+  const stageSchedule = getStageSchedule(job, job.status);
+  const stageLabel = JOB_STATUS_LABELS[job.status];
   const initialDate =
-    mode === "reschedule" && job.scheduledInterview
-      ? new Date(job.scheduledInterview.startAt)
+    mode === "reschedule" && stageSchedule
+      ? new Date(stageSchedule.startAt)
       : defaultTomorrowAt2pm();
   const [datetimeValue, setDatetimeValue] = useState(toDatetimeLocalValue(initialDate));
   const [localError, setLocalError] = useState<string | null>(null);
@@ -447,7 +459,7 @@ function ScheduleModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="schedule-form-title" className="text-lg font-semibold text-slate-900">
-          {mode === "reschedule" ? "Reschedule interview" : "Schedule interview"}
+          {mode === "reschedule" ? `Reschedule ${stageLabel}` : `Schedule ${stageLabel}`}
         </h2>
         <p className="mt-1 text-sm text-slate-600">{job.title}</p>
 
@@ -881,7 +893,13 @@ export function ApplicationsBoardPage() {
     }
     const previous = board;
     setBoard((current) =>
-      replaceJobInBoard(current ?? emptyBoard(), { ...job, scheduledInterview: null })
+      replaceJobInBoard(current ?? emptyBoard(), {
+        ...job,
+        stageSchedules: {
+          ...job.stageSchedules,
+          [job.status]: null,
+        },
+      })
     );
     setError(null);
     try {

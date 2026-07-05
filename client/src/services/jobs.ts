@@ -1,11 +1,15 @@
 import { getAuthSession } from "./auth";
 import {
   JOB_STATUSES,
+  SCHEDULABLE_JOB_STATUSES,
+  emptyStageSchedules,
   type CreateJobInput,
   type Job,
   type JobSource,
   type JobStatus,
   type JobsBoard,
+  type SchedulableJobStatus,
+  type StageSchedules,
   type UpdateJobInput,
 } from "../types/jobs";
 import type { MatchAnalysis } from "../types/matching";
@@ -35,7 +39,7 @@ interface RawJobRecord {
   jobUrl?: string | null;
   source?: string;
   matchAnalysis?: MatchAnalysis | null;
-  scheduledInterview?: RawScheduledInterview | null;
+  stageSchedules?: Partial<Record<SchedulableJobStatus, RawScheduledInterview | null>>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -85,6 +89,19 @@ function normalizeScheduledInterview(raw: RawScheduledInterview | null | undefin
   return { startAt: raw.startAt, endAt: raw.endAt };
 }
 
+function normalizeStageSchedules(
+  raw: Partial<Record<SchedulableJobStatus, RawScheduledInterview | null>> | undefined
+): StageSchedules {
+  const result = emptyStageSchedules();
+  if (!raw) {
+    return result;
+  }
+  for (const stage of SCHEDULABLE_JOB_STATUSES) {
+    result[stage] = normalizeScheduledInterview(raw[stage]);
+  }
+  return result;
+}
+
 export function normalizeJob(raw: RawJobRecord): Job {
   const id = raw.id ?? (raw._id ? String(raw._id) : "");
   return {
@@ -98,7 +115,7 @@ export function normalizeJob(raw: RawJobRecord): Job {
     jobUrl: raw.jobUrl ?? null,
     source: normalizeSource(raw.source),
     matchAnalysis: raw.matchAnalysis ?? null,
-    scheduledInterview: normalizeScheduledInterview(raw.scheduledInterview),
+    stageSchedules: normalizeStageSchedules(raw.stageSchedules),
     createdAt: raw.createdAt ?? new Date(0).toISOString(),
     updatedAt: raw.updatedAt ?? new Date(0).toISOString(),
   };

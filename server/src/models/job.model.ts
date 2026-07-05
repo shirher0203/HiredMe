@@ -61,6 +61,16 @@ const scheduledInterviewSchema = new Schema(
   { _id: false }
 );
 
+const stageSchedulesSchema = new Schema(
+  {
+    hr: { type: scheduledInterviewSchema },
+    technical: { type: scheduledInterviewSchema },
+    assignment: { type: scheduledInterviewSchema },
+    manager: { type: scheduledInterviewSchema },
+  },
+  { _id: false }
+);
+
 const jobSchema = new Schema(
   {
     userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
@@ -84,6 +94,7 @@ const jobSchema = new Schema(
     matchAnalysisHash: { type: String },
     matchAnalyzedAt: { type: Date },
     scheduledInterview: { type: scheduledInterviewSchema, default: null },
+    stageSchedules: { type: stageSchedulesSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

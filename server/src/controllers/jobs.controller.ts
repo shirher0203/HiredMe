@@ -3,9 +3,11 @@ import {
   JOB_SOURCES,
   JOB_STATUSES,
   JobModel,
+  SCHEDULABLE_JOB_STATUSES,
   isSchedulableJobStatus,
   type JobSource,
   type JobStatus,
+  type SchedulableJobStatus,
 } from "../models/job.model";
 import { UserModel } from "../models/user.model";
 import { HttpError } from "../utils/http-error";
@@ -108,6 +110,36 @@ function serializeScheduledInterview(raw: unknown) {
   return { startAt, endAt };
 }
 
+function serializeStageSchedules(job: Record<string, unknown>) {
+  const rawStageSchedules =
+    job.stageSchedules && typeof job.stageSchedules === "object"
+      ? (job.stageSchedules as Record<string, unknown>)
+      : {};
+  const legacySchedule = serializeScheduledInterview(job.scheduledInterview);
+  const status = job.status as JobStatus;
+
+  const result = Object.fromEntries(
+    SCHEDULABLE_JOB_STATUSES.map((stage) => [stage, null])
+  ) as Record<SchedulableJobStatus, { startAt: string; endAt: string } | null>;
+
+  for (const stage of SCHEDULABLE_JOB_STATUSES) {
+    const schedule = serializeScheduledInterview(rawStageSchedules[stage]);
+    if (schedule) {
+      result[stage] = schedule;
+    }
+  }
+
+  if (
+    legacySchedule &&
+    isSchedulableJobStatus(status) &&
+    !result[status]
+  ) {
+    result[status] = legacySchedule;
+  }
+
+  return result;
+}
+
 function serializeJob(job: Record<string, unknown>) {
   return {
     id: String(job._id),
@@ -120,7 +152,7 @@ function serializeJob(job: Record<string, unknown>) {
     jobUrl: job.jobUrl ?? null,
     source: job.source ?? "manual",
     matchAnalysis: job.matchAnalysis ?? null,
-    scheduledInterview: serializeScheduledInterview(job.scheduledInterview),
+    stageSchedules: serializeStageSchedules(job),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };
@@ -163,8 +195,9 @@ function groupByStatus(jobs: Array<Record<string, unknown>>) {
   ) as Record<JobStatus, Array<Record<string, unknown>>>;
 
   for (const job of jobs) {
-    const status = normalizeStatus(job.status);
-    grouped[status].push(job);
+    const serialized = serializeJob(job);
+    const status = normalizeStatus(serialized.status);
+    grouped[status].push(serialized);
   }
   return grouped;
 }
@@ -348,7 +381,12 @@ export async function scheduleJob(req: Request, res: Response, next: NextFunctio
 
     const job = await JobModel.findOneAndUpdate(
       { _id: asObjectId(jobId), userId: asObjectId(userId) },
-      { $set: { scheduledInterview: { startAt, endAt } } },
+      {
+        $set: {
+          [`stageSchedules.${existing.status}`]: { startAt, endAt },
+        },
+        $unset: { scheduledInterview: 1 },
+      },
       { returnDocument: "after" }
     ).lean();
     if (!job) {
@@ -364,9 +402,29 @@ export async function unscheduleJob(req: Request, res: Response, next: NextFunct
   try {
     const { userId } = requireUser(req);
     const jobId = requireIdParam(req.params.id);
+    const existing = await JobModel.findOne({
+      _id: asObjectId(jobId),
+      userId: asObjectId(userId),
+    }).lean();
+    if (!existing) {
+      throw new HttpError(404, "NOT_FOUND", "Job not found");
+    }
+    if (!isSchedulableJobStatus(existing.status)) {
+      throw new HttpError(
+        409,
+        "CONFLICT",
+        "Interviews cannot be unscheduled for jobs in Application, Offer, or Not Relevant stages"
+      );
+    }
+
     const job = await JobModel.findOneAndUpdate(
       { _id: asObjectId(jobId), userId: asObjectId(userId) },
-      { $set: { scheduledInterview: null } },
+      {
+        $unset: {
+          [`stageSchedules.${existing.status}`]: 1,
+          scheduledInterview: 1,
+        },
+      },
       { returnDocument: "after" }
     ).lean();
     if (!job) {
