@@ -29,6 +29,7 @@ import {
 import {
   JOB_STATUSES,
   JOB_STATUS_LABELS,
+  isSchedulableJobStatus,
   type CreateJobInput,
   type Job,
   type JobStatus,
@@ -165,7 +166,7 @@ function ApplicationCardContent({
   isDragging?: boolean;
 }) {
   const href = job.contact ? contactHref(job.contact) : null;
-  const showScheduleActions = job.status === "technical";
+  const showScheduleActions = isSchedulableJobStatus(job.status);
 
   return (
     <article
@@ -854,7 +855,11 @@ export function ApplicationsBoardPage() {
       setBoard((current) => replaceJobInBoard(current ?? emptyBoard(), updated));
       const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
       const url = buildGoogleCalendarTemplateUrl({
-        title: buildInterviewCalendarTitle(updated),
+        title: buildInterviewCalendarTitle({
+          title: updated.title,
+          company: updated.company,
+          stageLabel: JOB_STATUS_LABELS[updated.status],
+        }),
         startAt,
         endAt,
       });

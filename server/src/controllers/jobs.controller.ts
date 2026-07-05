@@ -1,5 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
-import { JOB_SOURCES, JOB_STATUSES, JobModel, type JobSource, type JobStatus } from "../models/job.model";
+import {
+  JOB_SOURCES,
+  JOB_STATUSES,
+  JobModel,
+  isSchedulableJobStatus,
+  type JobSource,
+  type JobStatus,
+} from "../models/job.model";
 import { UserModel } from "../models/user.model";
 import { HttpError } from "../utils/http-error";
 import { requireUser, asObjectId, requireIdParam } from "./controller-utils";
@@ -331,11 +338,11 @@ export async function scheduleJob(req: Request, res: Response, next: NextFunctio
     if (!existing) {
       throw new HttpError(404, "NOT_FOUND", "Job not found");
     }
-    if (existing.status !== "technical") {
+    if (!isSchedulableJobStatus(existing.status)) {
       throw new HttpError(
         409,
         "CONFLICT",
-        "Interviews can only be scheduled for jobs in the Technical Interview stage"
+        "Interviews cannot be scheduled for jobs in Application, Offer, or Not Relevant stages"
       );
     }
 

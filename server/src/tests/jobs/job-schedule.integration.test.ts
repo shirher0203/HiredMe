@@ -103,7 +103,20 @@ describe("Job interview scheduling API", () => {
     expect(stored?.scheduledInterview).toBeNull();
   });
 
-  it("rejects scheduling for non-technical jobs", async () => {
+  it("schedules an interview for an HR job", async () => {
+    const { token, userId } = makeAuthToken();
+    const job = await seedJob(userId, { status: "hr" });
+
+    const res = await request(app)
+      .post(`/api/jobs/${String(job._id)}/schedule`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startAt: futureStartAt() });
+
+    expect(res.status).toBe(200);
+    expect(res.body.scheduledInterview).toBeTruthy();
+  });
+
+  it("rejects scheduling for application-stage jobs", async () => {
     const { token, userId } = makeAuthToken();
     const job = await seedJob(userId, { status: "applied" });
 
@@ -113,6 +126,20 @@ describe("Job interview scheduling API", () => {
       .send({ startAt: futureStartAt() });
 
     expect(res.status).toBe(409);
+  });
+
+  it("rejects scheduling for offer and not relevant jobs", async () => {
+    const { token, userId } = makeAuthToken();
+    for (const status of ["offer", "not_relevant"] as const) {
+      const job = await seedJob(userId, { status });
+
+      const res = await request(app)
+        .post(`/api/jobs/${String(job._id)}/schedule`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ startAt: futureStartAt() });
+
+      expect(res.status).toBe(409);
+    }
   });
 
   it("rejects scheduling in the past", async () => {

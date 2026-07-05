@@ -12,6 +12,19 @@ export const JOB_STATUSES = [
 
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+export const SCHEDULABLE_JOB_STATUSES = [
+  "hr",
+  "technical",
+  "assignment",
+  "manager",
+] as const satisfies readonly JobStatus[];
+
+export type SchedulableJobStatus = (typeof SCHEDULABLE_JOB_STATUSES)[number];
+
+export function isSchedulableJobStatus(status: JobStatus): status is SchedulableJobStatus {
+  return (SCHEDULABLE_JOB_STATUSES as readonly JobStatus[]).includes(status);
+}
+
 export const JOB_SOURCES = ["manual", "match"] as const;
 
 export type JobSource = (typeof JOB_SOURCES)[number];

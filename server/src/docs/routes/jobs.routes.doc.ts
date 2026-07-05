@@ -155,7 +155,7 @@ export const jobsPaths = {
   "/api/jobs/{id}/schedule": {
     post: {
       tags: ["Jobs"],
-      summary: "Schedule a technical interview for a job",
+      summary: "Schedule an interview for a job in an active pipeline stage",
       security: [{ bearerAuth: [] }],
       parameters: [
         {
@@ -181,7 +181,7 @@ export const jobsPaths = {
       },
       responses: {
         "200": { description: "Interview scheduled" },
-        "409": { description: "Job is not in Technical Interview stage" },
+        "409": { description: "Job is in Application, Offer, or Not Relevant stage" },
       },
     },
     delete: {

@@ -15,11 +15,15 @@ export function buildGoogleCalendarTemplateUrl(input: {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-export function buildInterviewCalendarTitle(job: { title: string; company: string | null }): string {
+export function buildInterviewCalendarTitle(job: {
+  title: string;
+  company: string | null;
+  stageLabel: string;
+}): string {
   if (job.company) {
-    return `Technical Interview at ${job.company}`;
+    return `${job.stageLabel} at ${job.company}`;
   }
-  return `Technical Interview — ${job.title}`;
+  return `${job.stageLabel} — ${job.title}`;
 }
 
 export function openGoogleCalendarEvent(url: string): void {

@@ -12,6 +12,17 @@ export const JOB_STATUSES = [
 
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+export const SCHEDULABLE_JOB_STATUSES = [
+  "hr",
+  "technical",
+  "assignment",
+  "manager",
+] as const satisfies readonly JobStatus[];
+
+export function isSchedulableJobStatus(status: JobStatus): boolean {
+  return (SCHEDULABLE_JOB_STATUSES as readonly JobStatus[]).includes(status);
+}
+
 export type JobSource = "manual" | "match";
 
 export interface ScheduledInterview {
