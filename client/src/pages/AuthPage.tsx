@@ -1,6 +1,7 @@
 import { type FormEvent, useId, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  buildGoogleAuthUrl,
   login,
   register,
   saveAuthSession,
@@ -124,6 +125,11 @@ export function AuthPage() {
     }
   }
 
+  function startGoogleAuth() {
+    const redirect = location.state as AuthRedirectState | null;
+    window.location.href = buildGoogleAuthUrl(redirect?.from ?? "/profile");
+  }
+
   return (
     <div className="min-h-full bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_26rem] lg:px-8">
@@ -163,6 +169,23 @@ export function AuthPage() {
             >
               Register
             </Link>
+          </div>
+
+          <button
+            type="button"
+            onClick={startGoogleAuth}
+            disabled={loading}
+            className="mb-5 inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Continue with Google
+          </button>
+
+          <div className="mb-5 flex items-center gap-3">
+            <div className="h-px flex-1 bg-slate-200" />
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              or
+            </span>
+            <div className="h-px flex-1 bg-slate-200" />
           </div>
 
           <form onSubmit={onSubmit} noValidate>

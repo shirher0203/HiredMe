@@ -24,6 +24,11 @@ describe("POST /api/auth/register profile seed", () => {
 
   beforeEach(async () => {
     await clearAllCollections();
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.GOOGLE_OAUTH_REDIRECT_URI;
+    delete process.env.CLIENT_ORIGIN;
+    delete process.env.SERVER_PUBLIC_URL;
   });
 
   it("creates a user profile document with registration personal info", async () => {
@@ -62,5 +67,28 @@ describe("POST /api/auth/register profile seed", () => {
       education: [],
       projects: [],
     });
+  });
+
+  it("rejects Google auth start when Google credentials are missing", async () => {
+    const res = await request(app).get("/api/auth/google/start");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("GOOGLE_AUTH_NOT_CONFIGURED");
+  });
+
+  it("redirects Google auth start to Google OAuth with configured callback", async () => {
+    process.env.GOOGLE_CLIENT_ID = "google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "google-client-secret";
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = "http://localhost:5000/api/auth/google/callback";
+
+    const res = await request(app).get("/api/auth/google/start?redirect=/applications");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(res.headers.location).toContain("client_id=google-client-id");
+    expect(res.headers.location).toContain(
+      "redirect_uri=http%3A%2F%2Flocalhost%3A5000%2Fapi%2Fauth%2Fgoogle%2Fcallback"
+    );
+    expect(res.headers.location).toContain("state=");
   });
 });

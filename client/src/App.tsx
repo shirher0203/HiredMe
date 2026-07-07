@@ -3,7 +3,7 @@ import { AppLayout } from "./components/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ApplicationsBoardPage } from "./pages/ApplicationsBoardPage";
 import { AuthPage } from "./pages/AuthPage";
-import { FitPreviewPage } from "./pages/FitPreviewPage";
+import { GoogleAuthCallbackPage } from "./pages/GoogleAuthCallbackPage";
 import { InterviewPage } from "./pages/InterviewPage";
 import { MatchResultPage } from "./pages/MatchResultPage";
 import { ProfilePage } from "./pages/ProfilePage";
@@ -15,6 +15,7 @@ export function App() {
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/auth/login" replace />} />
           <Route path="auth/:mode" element={<AuthPage />} />
+          <Route path="auth/google/callback" element={<GoogleAuthCallbackPage />} />
           <Route path="login" element={<Navigate to="/auth/login" replace />} />
           <Route
             path="register"
