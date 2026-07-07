@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ApplicationsBoardPage } from "./pages/ApplicationsBoardPage";
 import { AuthPage } from "./pages/AuthPage";
 import { FitPreviewPage } from "./pages/FitPreviewPage";
@@ -12,19 +13,21 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/match" replace />} />
-          <Route path="match" element={<FitPreviewPage />} />
-          <Route path="match/result" element={<MatchResultPage />} />
-          <Route path="profile" element={<ProfilePage />} />
-          <Route path="interview" element={<InterviewPage />} />
-          <Route path="applications" element={<ApplicationsBoardPage />} />
+          <Route index element={<Navigate to="/auth/login" replace />} />
           <Route path="auth/:mode" element={<AuthPage />} />
           <Route path="login" element={<Navigate to="/auth/login" replace />} />
           <Route
             path="register"
             element={<Navigate to="/auth/register" replace />}
           />
-          <Route path="test" element={<Navigate to="/interview" replace />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="match" element={<FitPreviewPage />} />
+            <Route path="match/result" element={<MatchResultPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="interview" element={<InterviewPage />} />
+            <Route path="applications" element={<ApplicationsBoardPage />} />
+            <Route path="test" element={<Navigate to="/interview" replace />} />
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>

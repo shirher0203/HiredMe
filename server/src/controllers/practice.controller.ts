@@ -6,6 +6,7 @@ import { asObjectId, requireIdParam, requireUser } from "./controller-utils";
 import {
   evaluateAnswer,
   generateInterviewQuestions,
+  summarizeInterviewAttempt,
 } from "../services/ai/ai.service";
 
 interface CreateSessionBody {
@@ -153,6 +154,56 @@ export async function completePracticeSession(
     }
 
     return res.status(200).json(session);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function getPracticeSummary(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { userId } = requireUser(req);
+    const sessionId = requireIdParam(req.params.id);
+    const session = await PracticeSessionModel.findOne({
+      _id: asObjectId(sessionId),
+      userId,
+    }).lean();
+
+    if (!session) {
+      throw new HttpError(404, "NOT_FOUND", "Session not found");
+    }
+
+    if (session.turns.length === 0) {
+      throw new HttpError(400, "VALIDATION_ERROR", "No answers to summarize");
+    }
+
+    const answers = session.turns.map((turn) => {
+      const question = session.questions.find((q) => q.id === turn.questionId);
+      if (!question) {
+        throw new HttpError(404, "NOT_FOUND", `Question ${turn.questionId} not found`);
+      }
+      return {
+        questionId: turn.questionId,
+        question: question.question,
+        userAnswer: turn.userAnswer,
+        evaluation: turn.evaluation,
+      };
+    });
+
+    const jobTitle = session.jobId
+      ? await JobModel.findOne({ _id: session.jobId }).select("title").lean().then((j) => j?.title)
+      : undefined;
+
+    const summary = await summarizeInterviewAttempt({
+      interviewType: session.interviewType,
+      answers,
+      jobTitle,
+    });
+
+    return res.status(200).json(summary);
   } catch (err) {
     return next(err);
   }

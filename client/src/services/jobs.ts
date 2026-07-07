@@ -1,11 +1,15 @@
 import { getAuthSession } from "./auth";
 import {
   JOB_STATUSES,
+  SCHEDULABLE_JOB_STATUSES,
+  emptyStageSchedules,
   type CreateJobInput,
   type Job,
   type JobSource,
   type JobStatus,
   type JobsBoard,
+  type SchedulableJobStatus,
+  type StageSchedules,
   type UpdateJobInput,
 } from "../types/jobs";
 import type { MatchAnalysis } from "../types/matching";
@@ -16,6 +20,11 @@ interface ApiErrorBody {
   error?: {
     message?: string;
   };
+}
+
+interface RawScheduledInterview {
+  startAt?: string;
+  endAt?: string;
 }
 
 interface RawJobRecord {
@@ -30,6 +39,7 @@ interface RawJobRecord {
   jobUrl?: string | null;
   source?: string;
   matchAnalysis?: MatchAnalysis | null;
+  stageSchedules?: Partial<Record<SchedulableJobStatus, RawScheduledInterview | null>>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -72,6 +82,26 @@ function normalizeSource(raw: unknown): JobSource {
   return "manual";
 }
 
+function normalizeScheduledInterview(raw: RawScheduledInterview | null | undefined) {
+  if (!raw?.startAt || !raw?.endAt) {
+    return null;
+  }
+  return { startAt: raw.startAt, endAt: raw.endAt };
+}
+
+function normalizeStageSchedules(
+  raw: Partial<Record<SchedulableJobStatus, RawScheduledInterview | null>> | undefined
+): StageSchedules {
+  const result = emptyStageSchedules();
+  if (!raw) {
+    return result;
+  }
+  for (const stage of SCHEDULABLE_JOB_STATUSES) {
+    result[stage] = normalizeScheduledInterview(raw[stage]);
+  }
+  return result;
+}
+
 export function normalizeJob(raw: RawJobRecord): Job {
   const id = raw.id ?? (raw._id ? String(raw._id) : "");
   return {
@@ -85,6 +115,7 @@ export function normalizeJob(raw: RawJobRecord): Job {
     jobUrl: raw.jobUrl ?? null,
     source: normalizeSource(raw.source),
     matchAnalysis: raw.matchAnalysis ?? null,
+    stageSchedules: normalizeStageSchedules(raw.stageSchedules),
     createdAt: raw.createdAt ?? new Date(0).toISOString(),
     updatedAt: raw.updatedAt ?? new Date(0).toISOString(),
   };
@@ -187,4 +218,31 @@ export async function deleteJob(id: string): Promise<void> {
     },
     "Failed to delete application."
   );
+}
+
+export async function scheduleJob(id: string, startAt: string): Promise<Job> {
+  const raw = await requestJson<RawJobRecord>(
+    `/api/jobs/${id}/schedule`,
+    {
+      method: "POST",
+      headers: requireAuthHeaders(),
+      body: JSON.stringify({ startAt }),
+    },
+    "Failed to schedule interview."
+  );
+
+  return normalizeJob(raw);
+}
+
+export async function unscheduleJob(id: string): Promise<Job> {
+  const raw = await requestJson<RawJobRecord>(
+    `/api/jobs/${id}/schedule`,
+    {
+      method: "DELETE",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to unschedule interview."
+  );
+
+  return normalizeJob(raw);
 }

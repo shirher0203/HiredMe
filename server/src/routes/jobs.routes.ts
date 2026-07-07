@@ -7,6 +7,8 @@ import {
   getJobs,
   patchJob,
   patchJobStatus,
+  scheduleJob,
+  unscheduleJob,
   VALID_STATUSES,
 } from "../controllers/jobs.controller";
 import { JOB_SOURCES } from "../models/job.model";
@@ -69,11 +71,22 @@ const jobIdParamsSchema = z.object({
   }),
 });
 
+const scheduleJobSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+  }),
+  body: z.object({
+    startAt: z.string().min(1),
+  }),
+});
+
 export const jobsRouter = Router();
 
 jobsRouter.get("/", validate(listJobsQuerySchema), getJobs);
 jobsRouter.post("/", validate(createJobSchema), createJob);
 jobsRouter.patch("/:id", validate(patchJobSchema), patchJob);
 jobsRouter.patch("/:id/status", validate(patchJobStatusSchema), patchJobStatus);
+jobsRouter.post("/:id/schedule", validate(scheduleJobSchema), scheduleJob);
+jobsRouter.delete("/:id/schedule", validate(jobIdParamsSchema), unscheduleJob);
 jobsRouter.delete("/:id", validate(jobIdParamsSchema), deleteJob);
 jobsRouter.post("/:id/analyze", analyzeJobForUser);

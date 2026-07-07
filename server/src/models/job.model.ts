@@ -12,6 +12,19 @@ export const JOB_STATUSES = [
 
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+export const SCHEDULABLE_JOB_STATUSES = [
+  "hr",
+  "technical",
+  "assignment",
+  "manager",
+] as const satisfies readonly JobStatus[];
+
+export type SchedulableJobStatus = (typeof SCHEDULABLE_JOB_STATUSES)[number];
+
+export function isSchedulableJobStatus(status: JobStatus): status is SchedulableJobStatus {
+  return (SCHEDULABLE_JOB_STATUSES as readonly JobStatus[]).includes(status);
+}
+
 export const JOB_SOURCES = ["manual", "match"] as const;
 
 export type JobSource = (typeof JOB_SOURCES)[number];
@@ -40,6 +53,24 @@ const matchAnalysisSchema = new Schema(
   { _id: false }
 );
 
+const scheduledInterviewSchema = new Schema(
+  {
+    startAt: { type: Date, required: true },
+    endAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
+
+const stageSchedulesSchema = new Schema(
+  {
+    hr: { type: scheduledInterviewSchema },
+    technical: { type: scheduledInterviewSchema },
+    assignment: { type: scheduledInterviewSchema },
+    manager: { type: scheduledInterviewSchema },
+  },
+  { _id: false }
+);
+
 const jobSchema = new Schema(
   {
     userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
@@ -62,6 +93,8 @@ const jobSchema = new Schema(
     matchAnalysis: { type: matchAnalysisSchema },
     matchAnalysisHash: { type: String },
     matchAnalyzedAt: { type: Date },
+    scheduledInterview: { type: scheduledInterviewSchema, default: null },
+    stageSchedules: { type: stageSchedulesSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

@@ -62,6 +62,9 @@ async function submitAuth(
 
 export function saveAuthSession(session: AuthSession) {
   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  try {
+    window.dispatchEvent(new Event("authchange"));
+  } catch {}
 }
 
 export function getAuthSession(): AuthSession | null {
@@ -78,6 +81,9 @@ export function getAuthSession(): AuthSession | null {
 
 export function clearAuthSession() {
   localStorage.removeItem(AUTH_STORAGE_KEY);
+  try {
+    window.dispatchEvent(new Event("authchange"));
+  } catch {}
 }
 
 export function login(input: AuthInput): Promise<AuthSession> {

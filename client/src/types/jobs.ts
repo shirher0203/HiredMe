@@ -12,7 +12,27 @@ export const JOB_STATUSES = [
 
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+export const SCHEDULABLE_JOB_STATUSES = [
+  "hr",
+  "technical",
+  "assignment",
+  "manager",
+] as const satisfies readonly JobStatus[];
+
+export type SchedulableJobStatus = (typeof SCHEDULABLE_JOB_STATUSES)[number];
+
+export function isSchedulableJobStatus(status: JobStatus): status is SchedulableJobStatus {
+  return (SCHEDULABLE_JOB_STATUSES as readonly JobStatus[]).includes(status);
+}
+
 export type JobSource = "manual" | "match";
+
+export interface ScheduledInterview {
+  startAt: string;
+  endAt: string;
+}
+
+export type StageSchedules = Record<SchedulableJobStatus, ScheduledInterview | null>;
 
 export interface Job {
   id: string;
@@ -25,8 +45,34 @@ export interface Job {
   jobUrl: string | null;
   source: JobSource;
   matchAnalysis: MatchAnalysis | null;
+  stageSchedules: StageSchedules;
   createdAt: string;
   updatedAt: string;
+}
+
+export function emptyStageSchedules(): StageSchedules {
+  return Object.fromEntries(
+    SCHEDULABLE_JOB_STATUSES.map((stage) => [stage, null])
+  ) as StageSchedules;
+}
+
+export function getStageSchedule(
+  job: Job,
+  status: JobStatus
+): ScheduledInterview | null {
+  if (!isSchedulableJobStatus(status)) {
+    return null;
+  }
+  return job.stageSchedules[status];
+}
+
+export function getScheduledStages(
+  job: Job
+): { status: SchedulableJobStatus; schedule: ScheduledInterview }[] {
+  return SCHEDULABLE_JOB_STATUSES.flatMap((status) => {
+    const schedule = job.stageSchedules[status];
+    return schedule ? [{ status, schedule }] : [];
+  });
 }
 
 export type JobsBoard = Record<JobStatus, Job[]>;

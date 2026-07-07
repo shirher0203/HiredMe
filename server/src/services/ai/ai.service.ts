@@ -1176,8 +1176,15 @@ export async function generateInterviewQuestions(
 ): Promise<{ questions: InterviewQuestion[] }> {
   return instrument("generateInterviewQuestions", async (ctx) => {
     if (isMockMode()) {
-      const sliced = mockInterviewQuestions.slice(0, Math.max(0, input.count));
-      return { questions: ensureQuestionIds(sliced) };
+      // In mock mode, shuffle and select subset to simulate variation
+      const timestamp = Date.now();
+      const shuffled = [...mockInterviewQuestions].sort(() => 0.5 - Math.random());
+      const sliced = shuffled.slice(0, Math.max(0, input.count));
+      const uniqueQuestions = sliced.map((q, i) => ({
+        ...q,
+        id: `q_${timestamp}_${i}`,
+      }));
+      return { questions: uniqueQuestions };
     }
 
     const prompt = buildGenerateQuestionsPrompt({
@@ -1198,12 +1205,72 @@ export async function generateInterviewQuestions(
   });
 }
 
+function generateMockEvaluation(userAnswer: string): AnswerEvaluation {
+  // Generate somewhat dynamic mock evaluation based on answer characteristics
+  const answerLength = userAnswer.trim().length;
+  const wordCount = userAnswer.trim().split(/\s+/).length;
+  const hasCodeExample = /(`|code|example)/i.test(userAnswer);
+  const hasTradeOff = /(trade-off|however|but|alternatively|vs\.|versus|on the other hand)/i.test(
+    userAnswer
+  );
+
+  // Base scores
+  let clarity = 75;
+  let correctness = 75;
+  let depth = 65;
+
+  // Adjust based on answer characteristics
+  if (wordCount > 50) clarity += 8;
+  if (wordCount > 100) clarity += 5;
+  if (wordCount > 150) depth += 10;
+
+  if (hasCodeExample) {
+    depth += 12;
+    correctness += 5;
+  }
+
+  if (hasTradeOff) {
+    depth += 10;
+  }
+
+  // Clamp scores
+  clarity = Math.min(100, Math.max(50, clarity));
+  correctness = Math.min(100, Math.max(50, correctness));
+  depth = Math.min(100, Math.max(50, depth));
+
+  const overallScore = Math.round((clarity + correctness + depth) / 3);
+
+  return {
+    score: overallScore,
+    clarity,
+    correctness,
+    depth,
+    feedback:
+      wordCount < 30
+        ? "Your answer is quite brief. Consider adding more detail to demonstrate your understanding. Include examples or explain the reasoning behind your statements."
+        : hasCodeExample
+          ? "Good effort including a concrete example or code reference. This helps ground your explanation. Consider adding one more thought about trade-offs or edge cases to deepen the response."
+          : hasTradeOff
+            ? "You've touched on important nuances and trade-offs. Adding a concrete example would help illustrate the concept more clearly."
+            : "Your answer covers the basics well. To strengthen it, consider adding: (1) a concrete code example, (2) a trade-off or edge case, and (3) how this connects to the role's requirements.",
+    improvementTips: [
+      hasCodeExample
+        ? "Build on your example by explaining the trade-offs or performance implications."
+        : "Add a concrete code example or real-world scenario to illustrate your point.",
+      hasTradeOff
+        ? "Deepen further by connecting this to specific tools or frameworks mentioned in the job description."
+        : "Discuss at least one trade-off or limitation of the approach you described.",
+      "Conclude by explicitly tying your answer back to the role's expected focus areas.",
+    ],
+  };
+}
+
 export async function evaluateAnswer(
   input: EvaluateAnswerInput
 ): Promise<AnswerEvaluation> {
   return instrument("evaluateAnswer", async (ctx) => {
     if (isMockMode()) {
-      return mockAnswerEvaluation;
+      return generateMockEvaluation(input.userAnswer);
     }
 
     const prompt = buildEvaluateAnswerPrompt({

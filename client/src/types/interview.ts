@@ -15,3 +15,12 @@ export interface AnswerEvaluation {
   feedback: string;
   improvementTips: string[];
 }
+
+export interface InterviewAttemptSummary {
+  summary: string;
+  overallScore: number;
+  preserve_points: string[];
+  improve_points: string[];
+  topics_covered: string[];
+  overall_feedback: string;
+}
