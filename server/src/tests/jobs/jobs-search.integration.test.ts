@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { Types } from "mongoose";
 import { createApp } from "../../app";
 import { JobModel } from "../../models/job.model";
+import { UserProfileModel } from "../../models/user-profile.model";
 import {
   connectTestDb,
   disconnectTestDb,
@@ -21,6 +22,51 @@ function fullMatch(finalScore: number) {
     missingRequired: [],
     matchedAdvantage: [],
     explanation: "seed",
+  };
+}
+
+function parsedResume() {
+  return {
+    raw_text_hash: "resume-hash",
+    personal_info: {
+      full_name: "Test User",
+      email: "test@example.com",
+      phone: null,
+      location: null,
+      linkedin_url: null,
+      portfolio_or_github_url: null,
+    },
+    professional_summary: "Frontend developer with React experience.",
+    work_experience: [],
+    education: [
+      {
+        institution_name: "Test University",
+        degree_type: "BSc",
+        field_of_study: "Computer Science",
+        start_date: null,
+        end_date: null,
+      },
+    ],
+    skills: {
+      technical_skills: ["React", "Node"],
+      soft_skills: [],
+      tools_and_software: ["TypeScript"],
+    },
+    projects: [
+      {
+        project_name: "Hiring Board",
+        description: "Kanban app",
+        technologies_used: ["React", "Node"],
+        link: null,
+      },
+    ],
+    languages: [],
+    certifications: [],
+    awards: [],
+    parsed_metadata: {
+      language_detected: "en",
+      years_of_experience_estimate: 2,
+    },
   };
 }
 
@@ -247,5 +293,34 @@ describe("Job search & filtering API", () => {
 
     const remaining = await JobModel.findById(job._id);
     expect(remaining).toBeNull();
+  });
+
+  it("analyzes a saved job against the saved parsed resume profile", async () => {
+    const { token, userId } = makeAuthToken();
+    await UserProfileModel.create({
+      userId: new Types.ObjectId(userId),
+      profile: parsedResume(),
+    });
+    const job = await seedJob(userId, {
+      title: "React Engineer",
+      description: "Build full-stack apps with React, Node, and TypeScript.",
+    });
+
+    const res = await request(app)
+      .post(`/api/jobs/${String(job._id)}/analyze`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.jobAnalysis).toBeDefined();
+    expect(res.body.matchAnalysis).toBeDefined();
+    expect(res.body.parsedResume.professional_summary).toBe(
+      "Frontend developer with React experience."
+    );
+    expect(res.body.job.jobAnalysis).toBeDefined();
+    expect(res.body.job.matchAnalysis).toBeDefined();
+
+    const persisted = await JobModel.findById(job._id).lean();
+    expect(persisted?.jobAnalysis).toBeTruthy();
+    expect(persisted?.matchAnalysis).toBeTruthy();
   });
 });

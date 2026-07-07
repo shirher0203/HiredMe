@@ -13,6 +13,7 @@ import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuthSession } from "../services/auth";
 import {
+  analyzeJob as analyzeSavedJob,
   createJob,
   deleteJob,
   fetchJobsBoard,
@@ -38,6 +39,8 @@ import {
   type JobsBoard,
   type UpdateJobInput,
 } from "../types/jobs";
+import type { JobAnalysis, MatchAnalysis } from "../types/matching";
+import type { ParsedResume } from "../types/parsedResume";
 
 function emptyBoard(): JobsBoard {
   return {
@@ -157,6 +160,7 @@ function ApplicationCardContent({
   onSchedule,
   onReschedule,
   onUnschedule,
+  onReview,
   isDragging,
 }: {
   job: Job;
@@ -165,6 +169,7 @@ function ApplicationCardContent({
   onSchedule?: () => void;
   onReschedule?: () => void;
   onUnschedule?: () => void;
+  onReview: () => void;
   isDragging?: boolean;
 }) {
   const href = job.contact ? contactHref(job.contact) : null;
@@ -248,6 +253,16 @@ function ApplicationCardContent({
       </dl>
 
       <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReview();
+          }}
+          className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+        >
+          {job.matchAnalysis ? "Review" : "Analyze"}
+        </button>
         {showScheduleActions ? (
           currentStageSchedule ? (
             <>
@@ -317,6 +332,7 @@ function DraggableApplicationCard({
   onSchedule,
   onReschedule,
   onUnschedule,
+  onReview,
 }: {
   job: Job;
   onEdit: () => void;
@@ -324,6 +340,7 @@ function DraggableApplicationCard({
   onSchedule?: () => void;
   onReschedule?: () => void;
   onUnschedule?: () => void;
+  onReview: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: job.id,
@@ -343,6 +360,7 @@ function DraggableApplicationCard({
         onSchedule={onSchedule}
         onReschedule={onReschedule}
         onUnschedule={onUnschedule}
+        onReview={onReview}
         isDragging={isDragging}
       />
     </div>
@@ -357,6 +375,7 @@ function BoardColumn({
   onSchedule,
   onReschedule,
   onUnschedule,
+  onReview,
 }: {
   status: JobStatus;
   jobs: Job[];
@@ -365,6 +384,7 @@ function BoardColumn({
   onSchedule: (job: Job) => void;
   onReschedule: (job: Job) => void;
   onUnschedule: (job: Job) => void;
+  onReview: (job: Job) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
@@ -393,6 +413,7 @@ function BoardColumn({
             onSchedule={() => onSchedule(job)}
             onReschedule={() => onReschedule(job)}
             onUnschedule={() => onUnschedule(job)}
+            onReview={() => onReview(job)}
           />
         ))}
       </div>
@@ -500,6 +521,268 @@ function ScheduleModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function SkillChips({
+  label,
+  items,
+  variant,
+}: {
+  label: string;
+  items: string[];
+  variant: "matched" | "missing" | "advantage";
+}) {
+  const palette =
+    variant === "matched"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : variant === "missing"
+      ? "border-amber-200 bg-amber-50 text-amber-950"
+      : "border-sky-200 bg-sky-50 text-sky-950";
+
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-slate-700">{label}</h3>
+      {items.length === 0 ? (
+        <p className="text-sm text-slate-500">None</p>
+      ) : (
+        <ul className="flex flex-wrap gap-2">
+          {items.map((item) => (
+            <li key={item} className={`rounded-full border px-3 py-1 text-sm ${palette}`}>
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ResumeReviewSection({ resume }: { resume: ParsedResume }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">Resume analysis</h3>
+          <p className="mt-1 text-sm text-slate-600">Candidate signals used for match scoring.</p>
+        </div>
+        <div className="rounded-xl bg-white px-3 py-2 text-sm text-slate-700">
+          Experience:{" "}
+          <span className="font-semibold">
+            {resume.parsed_metadata.years_of_experience_estimate ?? 0} years
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">Professional summary</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700">
+            {resume.professional_summary || "No professional summary was detected."}
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Technical skills
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {resume.skills.technical_skills.length > 0 ? (
+                resume.skills.technical_skills.map((skill) => (
+                  <span key={skill} className="rounded-full bg-white px-2 py-1 text-xs text-slate-800">
+                    {skill}
+                  </span>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">None</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Tools
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {resume.skills.tools_and_software.length > 0 ? (
+                resume.skills.tools_and_software.map((tool) => (
+                  <span key={tool} className="rounded-full bg-white px-2 py-1 text-xs text-slate-800">
+                    {tool}
+                  </span>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">None</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MatchReviewSection({ match }: { match: MatchAnalysis }) {
+  return (
+    <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-indigo-700">Overall fit</p>
+          <p className="text-4xl font-bold tracking-tight text-indigo-950">
+            {match.finalScore}
+            <span className="text-xl font-semibold text-indigo-300">/100</span>
+          </p>
+        </div>
+        <p className="max-w-xl text-sm text-slate-600">{match.explanation}</p>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            Skill overlap
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-emerald-900">{match.algorithmicScore}</p>
+        </div>
+        <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+            AI semantic score
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-violet-900">{match.aiSemanticScore}</p>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-5 md:grid-cols-3">
+        <SkillChips label="Matched required skills" items={match.matchedRequired} variant="matched" />
+        <SkillChips label="Missing required skills" items={match.missingRequired} variant="missing" />
+        <SkillChips label="Matched advantage skills" items={match.matchedAdvantage} variant="advantage" />
+      </div>
+    </section>
+  );
+}
+
+function JobAnalysisReviewSection({ analysis }: { analysis: JobAnalysis }) {
+  return (
+    <section className="rounded-xl border border-violet-100 bg-violet-50/40 p-4">
+      <h3 className="text-base font-semibold text-violet-950">Analyzed role</h3>
+      <p className="mt-1 text-sm text-slate-600">{analysis.summary}</p>
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="font-medium text-slate-500">Title</dt>
+          <dd className="text-slate-900">{analysis.roleTitle}</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-slate-500">Seniority</dt>
+          <dd className="capitalize text-slate-900">{analysis.seniorityLevel}</dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="font-medium text-slate-500">Required skills</dt>
+          <dd className="mt-1 flex flex-wrap gap-2">
+            {analysis.requiredSkills.map((skill) => (
+              <span key={skill} className="rounded-md border border-indigo-100 bg-white px-2 py-0.5 text-indigo-950">
+                {skill}
+              </span>
+            ))}
+          </dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="font-medium text-slate-500">Advantage skills</dt>
+          <dd className="mt-1 flex flex-wrap gap-2">
+            {analysis.advantageSkills.map((skill) => (
+              <span key={skill} className="rounded-md border border-violet-100 bg-white px-2 py-0.5 text-violet-950">
+                {skill}
+              </span>
+            ))}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function JobReviewModal({
+  job,
+  jobAnalysis,
+  matchAnalysis,
+  parsedResume,
+  loading,
+  error,
+  onClose,
+  onGoToProfile,
+}: {
+  job: Job;
+  jobAnalysis: JobAnalysis | null;
+  matchAnalysis: MatchAnalysis | null;
+  parsedResume: ParsedResume | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onGoToProfile: () => void;
+}) {
+  const profileError = error?.toLowerCase().includes("profile") ?? false;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-indigo-100 bg-white p-6 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="job-review-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 id="job-review-title" className="text-xl font-semibold text-slate-900">
+              Match review
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {job.title}
+              {job.company ? ` at ${job.company}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="self-start rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          >
+            Close
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="py-10">
+            <p className="text-sm font-medium text-slate-700">Analyzing application...</p>
+            <div className="mt-4 rounded-full bg-slate-200 p-1">
+              <div className="h-2 w-full animate-pulse rounded-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-sky-300" />
+            </div>
+          </div>
+        ) : null}
+
+        {!loading && error ? (
+          <div className="mt-5 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+            <p>{error}</p>
+            {profileError ? (
+              <button
+                type="button"
+                onClick={onGoToProfile}
+                className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+              >
+                Go to profile
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!loading && !error && jobAnalysis && matchAnalysis && parsedResume ? (
+          <div className="mt-5 space-y-5">
+            <ResumeReviewSection resume={parsedResume} />
+            <MatchReviewSection match={matchAnalysis} />
+            <JobAnalysisReviewSection analysis={jobAnalysis} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -736,6 +1019,12 @@ export function ApplicationsBoardPage() {
   const [schedulingJob, setSchedulingJob] = useState<Job | null>(null);
   const [scheduleMode, setScheduleMode] = useState<"schedule" | "reschedule">("schedule");
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [reviewJob, setReviewJob] = useState<Job | null>(null);
+  const [reviewJobAnalysis, setReviewJobAnalysis] = useState<JobAnalysis | null>(null);
+  const [reviewMatchAnalysis, setReviewMatchAnalysis] = useState<MatchAnalysis | null>(null);
+  const [reviewParsedResume, setReviewParsedResume] = useState<ParsedResume | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -911,6 +1200,36 @@ export function ApplicationsBoardPage() {
     }
   }
 
+  async function handleReview(job: Job) {
+    setReviewJob(job);
+    setReviewJobAnalysis(job.jobAnalysis);
+    setReviewMatchAnalysis(job.matchAnalysis);
+    setReviewParsedResume(null);
+    setReviewError(null);
+    setReviewLoading(true);
+    try {
+      const result = await analyzeSavedJob(job.id);
+      setReviewJob(result.job);
+      setReviewJobAnalysis(result.jobAnalysis);
+      setReviewMatchAnalysis(result.matchAnalysis);
+      setReviewParsedResume(result.parsedResume);
+      setBoard((current) => replaceJobInBoard(current ?? emptyBoard(), result.job));
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Failed to analyze application.");
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+  function closeReviewModal() {
+    setReviewJob(null);
+    setReviewJobAnalysis(null);
+    setReviewMatchAnalysis(null);
+    setReviewParsedResume(null);
+    setReviewError(null);
+    setReviewLoading(false);
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50">
       <div className="mx-auto max-w-[100vw] px-4 py-8 sm:px-6 lg:px-8">
@@ -962,6 +1281,7 @@ export function ApplicationsBoardPage() {
                   onSchedule={(job) => openScheduleModal(job, "schedule")}
                   onReschedule={(job) => openScheduleModal(job, "reschedule")}
                   onUnschedule={handleUnschedule}
+                  onReview={(job) => void handleReview(job)}
                 />
               ))}
             </div>
@@ -972,6 +1292,7 @@ export function ApplicationsBoardPage() {
                     job={activeJob}
                     onEdit={() => undefined}
                     onDelete={() => undefined}
+                    onReview={() => undefined}
                     isDragging
                   />
                 </div>
@@ -985,10 +1306,13 @@ export function ApplicationsBoardPage() {
             <p className="text-slate-600">No applications yet.</p>
             <button
               type="button"
-              onClick={() => navigate("/match")}
+              onClick={() => {
+                setFormError(null);
+                setModal("create");
+              }}
               className="mt-4 text-sm font-medium text-indigo-600 hover:underline"
             >
-              Analyze a job on Match first
+              Add your first application
             </button>
           </div>
         ) : null}
@@ -1031,6 +1355,22 @@ export function ApplicationsBoardPage() {
           onSubmit={handleScheduleSave}
           submitting={submitting}
           error={scheduleError}
+        />
+      ) : null}
+
+      {reviewJob ? (
+        <JobReviewModal
+          job={reviewJob}
+          jobAnalysis={reviewJobAnalysis}
+          matchAnalysis={reviewMatchAnalysis}
+          parsedResume={reviewParsedResume}
+          loading={reviewLoading}
+          error={reviewError}
+          onClose={closeReviewModal}
+          onGoToProfile={() => {
+            closeReviewModal();
+            navigate("/profile");
+          }}
         />
       ) : null}
     </div>

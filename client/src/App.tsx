@@ -3,9 +3,7 @@ import { AppLayout } from "./components/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ApplicationsBoardPage } from "./pages/ApplicationsBoardPage";
 import { AuthPage } from "./pages/AuthPage";
-import { FitPreviewPage } from "./pages/FitPreviewPage";
 import { InterviewPage } from "./pages/InterviewPage";
-import { MatchResultPage } from "./pages/MatchResultPage";
 import { ProfilePage } from "./pages/ProfilePage";
 
 export function App() {
@@ -21,8 +19,8 @@ export function App() {
             element={<Navigate to="/auth/register" replace />}
           />
           <Route element={<ProtectedRoute />}>
-            <Route path="match" element={<FitPreviewPage />} />
-            <Route path="match/result" element={<MatchResultPage />} />
+            <Route path="match" element={<Navigate to="/applications" replace />} />
+            <Route path="match/result" element={<Navigate to="/applications" replace />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="interview" element={<InterviewPage />} />
             <Route path="applications" element={<ApplicationsBoardPage />} />

@@ -1,4 +1,4 @@
-import type { MatchAnalysis } from "./matching";
+import type { JobAnalysis, MatchAnalysis } from "./matching";
 
 export const JOB_STATUSES = [
   "applied",
@@ -44,6 +44,7 @@ export interface Job {
   contact: string | null;
   jobUrl: string | null;
   source: JobSource;
+  jobAnalysis: JobAnalysis | null;
   matchAnalysis: MatchAnalysis | null;
   stageSchedules: StageSchedules;
   createdAt: string;

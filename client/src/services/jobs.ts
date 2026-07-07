@@ -12,7 +12,8 @@ import {
   type StageSchedules,
   type UpdateJobInput,
 } from "../types/jobs";
-import type { MatchAnalysis } from "../types/matching";
+import type { JobAnalysis, MatchAnalysis } from "../types/matching";
+import type { ParsedResume } from "../types/parsedResume";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -38,10 +39,19 @@ interface RawJobRecord {
   contact?: string | null;
   jobUrl?: string | null;
   source?: string;
+  jobAnalysis?: JobAnalysis | null;
   matchAnalysis?: MatchAnalysis | null;
   stageSchedules?: Partial<Record<SchedulableJobStatus, RawScheduledInterview | null>>;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface AnalyzeSavedJobResult {
+  jobAnalysis: JobAnalysis;
+  matchAnalysis: MatchAnalysis;
+  parsedResume: ParsedResume;
+  cached: boolean;
+  job: Job;
 }
 
 function requireAuthHeaders(): HeadersInit {
@@ -114,6 +124,7 @@ export function normalizeJob(raw: RawJobRecord): Job {
     contact: raw.contact ?? null,
     jobUrl: raw.jobUrl ?? null,
     source: normalizeSource(raw.source),
+    jobAnalysis: raw.jobAnalysis ?? null,
     matchAnalysis: raw.matchAnalysis ?? null,
     stageSchedules: normalizeStageSchedules(raw.stageSchedules),
     createdAt: raw.createdAt ?? new Date(0).toISOString(),
@@ -245,4 +256,26 @@ export async function unscheduleJob(id: string): Promise<Job> {
   );
 
   return normalizeJob(raw);
+}
+
+export async function analyzeJob(
+  id: string,
+  options: { force?: boolean } = {}
+): Promise<AnalyzeSavedJobResult> {
+  const suffix = options.force ? "?force=true" : "";
+  const raw = await requestJson<
+    Omit<AnalyzeSavedJobResult, "job"> & { job: RawJobRecord }
+  >(
+    `/api/jobs/${id}/analyze${suffix}`,
+    {
+      method: "POST",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to analyze application."
+  );
+
+  return {
+    ...raw,
+    job: normalizeJob(raw.job),
+  };
 }
