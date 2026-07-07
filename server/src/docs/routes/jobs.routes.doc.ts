@@ -148,7 +148,9 @@ export const jobsPaths = {
         },
       ],
       responses: {
-        "200": { description: "Job and match analysis" },
+        "200": {
+          description: "Job analysis, match analysis, saved parsed resume, cache flag, and updated job",
+        },
       },
     },
   },

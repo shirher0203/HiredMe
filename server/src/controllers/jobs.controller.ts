@@ -9,12 +9,13 @@ import {
   type JobStatus,
   type SchedulableJobStatus,
 } from "../models/job.model";
-import { UserModel } from "../models/user.model";
+import { UserProfileModel } from "../models/user-profile.model";
 import { HttpError } from "../utils/http-error";
 import { requireUser, asObjectId, requireIdParam } from "./controller-utils";
 import { analyzeJob, calculateMatch } from "../services/ai/ai.service";
 import { hashPayload } from "../utils/hash";
 import type { JobAnalysis } from "../services/matching/matching.types";
+import type { ParsedResume } from "../services/ai/parsed-resume.types";
 
 export const VALID_STATUSES = JOB_STATUSES;
 
@@ -151,6 +152,7 @@ function serializeJob(job: Record<string, unknown>) {
     contact: job.contact ?? null,
     jobUrl: job.jobUrl ?? null,
     source: job.source ?? "manual",
+    jobAnalysis: job.jobAnalysis ?? null,
     matchAnalysis: job.matchAnalysis ?? null,
     stageSchedules: serializeStageSchedules(job),
     createdAt: job.createdAt,
@@ -455,9 +457,34 @@ export async function patchJobStatus(req: Request, res: Response, next: NextFunc
   }
 }
 
-function buildMatchInputHash(profileSkills: string[], jobAnalysis: JobAnalysis): string {
+function toProfileInput(parsedResume: ParsedResume) {
+  return {
+    skills: [
+      ...parsedResume.skills.technical_skills,
+      ...parsedResume.skills.tools_and_software,
+    ],
+    experienceYears:
+      Number.isFinite(parsedResume.parsed_metadata.years_of_experience_estimate) &&
+      parsedResume.parsed_metadata.years_of_experience_estimate > 0
+        ? parsedResume.parsed_metadata.years_of_experience_estimate
+        : 0,
+    projects: parsedResume.projects
+      .map((project) => project.project_name)
+      .filter((name): name is string => typeof name === "string" && name.trim() !== ""),
+    education: parsedResume.education
+      .map((item) =>
+        [item.degree_type, item.field_of_study, item.institution_name]
+          .filter((part): part is string => typeof part === "string" && part.trim() !== "")
+          .join(" ")
+      )
+      .filter(Boolean)
+      .join("; "),
+  };
+}
+
+function buildParsedResumeMatchInputHash(parsedResume: ParsedResume, jobAnalysis: JobAnalysis): string {
   return hashPayload({
-    profileSkills,
+    parsedResume,
     requiredSkills: jobAnalysis.requiredSkills,
     advantageSkills: jobAnalysis.advantageSkills,
   });
@@ -468,24 +495,23 @@ export async function analyzeJobForUser(req: Request, res: Response, next: NextF
     const { userId } = requireUser(req);
     const force = req.query.force === "true";
     const jobId = requireIdParam(req.params.id);
-    const [job, user] = await Promise.all([
+    const [job, savedProfile] = await Promise.all([
       JobModel.findOne({ _id: asObjectId(jobId), userId }),
-      UserModel.findById(userId),
+      UserProfileModel.findOne({ userId }).lean(),
     ]);
     if (!job) {
       throw new HttpError(404, "NOT_FOUND", "Job not found");
     }
-    if (!user) {
-      throw new HttpError(404, "NOT_FOUND", "User not found");
+    if (!savedProfile?.profile) {
+      throw new HttpError(
+        404,
+        "PROFILE_NOT_FOUND",
+        "Create and save your profile before analyzing a job match"
+      );
     }
 
-    const profile = {
-      skills: user.profile.skills ?? [],
-      experienceYears: user.profile.experienceYears ?? 0,
-      projects: user.profile.projects ?? [],
-      education: user.profile.education ?? undefined,
-      goals: user.profile.goals ?? undefined,
-    };
+    const parsedResume = savedProfile.profile as ParsedResume;
+    const profile = toProfileInput(parsedResume);
 
     const jobHash = hashPayload({ description: job.description });
     const cachedJobAnalysis = !force && job.jobAnalysis && job.jobAnalysisHash === jobHash;
@@ -501,11 +527,11 @@ export async function analyzeJobForUser(req: Request, res: Response, next: NextF
       throw new HttpError(500, "INTERNAL_ERROR", "Failed to analyze job");
     }
 
-    const matchHash = buildMatchInputHash(profile.skills, analyzed);
+    const matchHash = buildParsedResumeMatchInputHash(parsedResume, analyzed);
     const canReuseMatch =
       !force && job.matchAnalysis && job.matchAnalysisHash === matchHash && cachedJobAnalysis;
     if (!canReuseMatch) {
-      job.matchAnalysis = await calculateMatch(profile, analyzed);
+      job.matchAnalysis = await calculateMatch(profile, analyzed, parsedResume);
       job.matchAnalysisHash = matchHash;
       job.matchAnalyzedAt = new Date();
     }
@@ -515,7 +541,9 @@ export async function analyzeJobForUser(req: Request, res: Response, next: NextF
     return res.status(200).json({
       jobAnalysis: job.jobAnalysis,
       matchAnalysis: job.matchAnalysis,
+      parsedResume,
       cached: cachedJobAnalysis && canReuseMatch,
+      job: serializeJob(job.toObject() as Record<string, unknown>),
     });
   } catch (err) {
     return next(err);
