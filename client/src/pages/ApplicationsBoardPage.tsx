@@ -622,6 +622,60 @@ function ResumeReviewSection({ resume }: { resume: ParsedResume }) {
   );
 }
 
+function FitNote({ label, value }: { label: string; value: string | undefined }) {
+  if (!value) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-sm text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function EvidenceList({ label, items }: { label: string; items: string[] | undefined }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Resume-aware detail the AI produces only when the user has a saved CV.
+ * Renders nothing at all for older matches that have none of it.
+ */
+function ResumeFitDetails({ match }: { match: MatchAnalysis }) {
+  const hasAny = Boolean(
+    match.educationFit ||
+      match.experienceFit ||
+      match.projectFit ||
+      match.languageFit ||
+      match.resumeInsights?.length ||
+      match.matchingEvidence?.length
+  );
+  if (!hasAny) return null;
+
+  return (
+    <div className="mt-6 space-y-4 rounded-xl border border-indigo-100 bg-white/70 p-4">
+      <p className="text-sm font-semibold text-indigo-950">How your CV lines up</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FitNote label="Experience" value={match.experienceFit} />
+        <FitNote label="Education" value={match.educationFit} />
+        <FitNote label="Projects" value={match.projectFit} />
+        <FitNote label="Languages" value={match.languageFit} />
+      </div>
+      <EvidenceList label="Evidence from your CV" items={match.matchingEvidence} />
+      <EvidenceList label="Suggestions" items={match.resumeInsights} />
+    </div>
+  );
+}
+
 function MatchReviewSection({ match }: { match: MatchAnalysis }) {
   return (
     <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
@@ -656,6 +710,8 @@ function MatchReviewSection({ match }: { match: MatchAnalysis }) {
         <SkillChips label="Missing required skills" items={match.missingRequired} variant="missing" />
         <SkillChips label="Matched advantage skills" items={match.matchedAdvantage} variant="advantage" />
       </div>
+
+      <ResumeFitDetails match={match} />
     </section>
   );
 }

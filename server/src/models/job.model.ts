@@ -40,6 +40,10 @@ const jobAnalysisSchema = new Schema(
   { _id: false }
 );
 
+// The resume-aware fields below are optional on purpose: `calculateMatch`
+// only produces them when it is given a parsed resume, and documents written
+// before they existed must keep loading. Declaring no `default` keeps them
+// absent rather than stored as null.
 const matchAnalysisSchema = new Schema(
   {
     finalScore: { type: Number, required: true },
@@ -49,6 +53,14 @@ const matchAnalysisSchema = new Schema(
     missingRequired: { type: [String], default: [] },
     matchedAdvantage: { type: [String], default: [] },
     explanation: { type: String, required: true },
+    educationFit: { type: String },
+    experienceFit: { type: String },
+    projectFit: { type: String },
+    languageFit: { type: String },
+    // `default: undefined` suppresses Mongoose's implicit `[]` on array paths
+    // so an absent list stays absent instead of being stored as empty.
+    resumeInsights: { type: [String], default: undefined },
+    matchingEvidence: { type: [String], default: undefined },
   },
   { _id: false }
 );
