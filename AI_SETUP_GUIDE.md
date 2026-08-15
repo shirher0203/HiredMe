@@ -1,54 +1,75 @@
 # AI Integration Setup Guide
 
-## Current Status: Mock Mode
-The system is currently running in **Mock Mode** (`USE_MOCK_AI=true`). This means:
-- ✅ Questions are shuffled but based on pre-defined templates
-- ✅ Evaluations are now dynamic based on answer characteristics (length, code examples, trade-offs mentioned)
-- ❌ NOT using real AI for generating questions or evaluations
-- ❌ Cannot provide truly personalized feedback
+HiredMe uses **Google Gemini** for every AI feature: CV parsing, job-description
+analysis, match scoring, interview question generation, answer evaluation and
+interview summaries. There is no second provider — the Gemini SDK is imported in
+exactly one file, `server/src/services/ai/ai.client.ts`.
 
-## Switch to Real AI (Recommended for Production)
+A mock mode is available for offline development. It returns fixed canned
+responses and is not a substitute for the real provider when judging output
+quality.
 
-### Option 1: Using OpenAI (ChatGPT)
-1. Get an API key from [OpenAI](https://platform.openai.com/api-keys)
-2. Update `server/.env`:
-   ```
-   USE_MOCK_AI=false
-   OPENAI_API_KEY=sk-your-key-here
-   ```
-3. Restart the server
+## Configuring real Gemini
 
-### Option 2: Using Google Gemini (Free Tier Available)
-1. Get an API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Update `server/.env`:
+1. Create an API key in [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Set it in `server/.env` (or the repository-root `.env` when running Docker):
+
    ```
    USE_MOCK_AI=false
    GEMINI_API_KEY=your-key-here
-   GEMINI_MODEL=gemini-2.0-flash
+   GEMINI_MODEL=gemini-flash-lite-latest
    ```
-3. Restart the server
 
-## Current Mock Mode Behavior
+3. Restart the server.
 
-### Dynamic Mock Evaluation
-The system now evaluates answers based on:
-- **Answer length**: Longer answers get higher clarity scores
-- **Code examples**: Detects backticks or "code"/"example" keywords
-- **Trade-offs**: Detects discussion of alternatives or trade-offs
-- **Feedback**: Tailored based on what's detected in the answer
+`GOOGLE_GENERATIVE_AI_KEY` is accepted as an alternative name for the same key.
+`GEMINI_MODEL` is optional and defaults to `gemini-flash-lite-latest`.
 
-### Dynamic Questions
-- Questions are shuffled on each session (different order each time)
-- Each session gets a unique timestamp-based ID for tracking
+When `USE_MOCK_AI` is anything other than `true`, startup validation requires one
+of those two keys and the server exits with a clear message if neither is set.
 
-## What Will Improve With Real AI
+### Verifying the connection
 
-✨ **With Real AI you'll get:**
-- Truly unique questions tailored to user's skills and job requirements
-- Intelligent evaluation that understands semantic meaning
-- Context-aware feedback specific to the user's actual answer
-- Better overall interview experience
+```bash
+cd server
+npm run smoke:ai
+```
 
-## Testing the Mock Mode
-The mock mode is perfect for development and testing without API costs. 
-Just remember: **the evaluations are pattern-based, not intelligent**.
+The smoke script exercises each AI function against the real provider and prints
+a pass/fail line per function. It is the fastest way to confirm a key works
+before testing through the UI.
+
+## Mock mode
+
+```
+USE_MOCK_AI=true
+```
+
+No API key is needed. In this mode:
+
+- CV parsing returns one fixed sample profile
+- Job analysis, matching, questions, evaluations and summaries return canned
+  fixtures
+- Answer evaluation varies only with simple text characteristics of the answer
+  (length, presence of code, mention of trade-offs) — it is pattern matching,
+  not comprehension
+
+Mock mode is for working offline and for tests that must not hit the network. Any
+judgement about extraction quality, match quality or question variety has to be
+made with a real key, because the mock responses are constant by construction.
+
+## What real Gemini adds
+
+- Questions that reflect the specific job and the user's actual profile
+- Semantic evaluation of an answer rather than keyword and length heuristics
+- Feedback and summaries written against what the candidate actually said
+- Job analysis and match reasoning grounded in the pasted job description
+
+## Troubleshooting
+
+| Symptom | Cause |
+| --- | --- |
+| Server exits at boot with an environment validation error naming the Gemini keys | `USE_MOCK_AI` is not `true` and neither key is set |
+| `Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_KEY` thrown on an AI request | The key was removed from the environment after boot |
+| `AI client should not be called in mock mode` | `USE_MOCK_AI=true` while exercising a real-AI code path |
+| Identical CV parse output for every upload | Still in mock mode |
