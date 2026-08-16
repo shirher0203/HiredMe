@@ -259,7 +259,11 @@ export const AI_ML_ALIASES: Readonly<Record<string, string>> = {
   "pine cone": "pinecone",
   "pine-cone": "pinecone",
   ml: "machine-learning",
+  // The abbreviation mapped but the written-out form did not, so a job asking
+  // for "machine learning" never matched a CV listing "ML".
+  "machine learning": "machine-learning",
   nlp: "natural-language-processing",
+  "natural language processing": "natural-language-processing",
 };
 
 export const MOBILE_ALIASES: Readonly<Record<string, string>> = {
@@ -319,6 +323,100 @@ export const CONCEPT_ALIASES: Readonly<Record<string, string>> = {
   "server-less": "serverless",
 };
 
+// Security and networking were absent from the dictionary entirely: a grep for
+// security, cyber, threat, network, tcp, wireshark or siem returned nothing, so
+// every skill in those domains fell through as an opaque raw string.
+export const SECURITY_ALIASES: Readonly<Record<string, string>> = {
+  "cyber security": "cybersecurity",
+  "cyber-security": "cybersecurity",
+  "information security": "information-security",
+  infosec: "information-security",
+  appsec: "application-security",
+  "application security": "application-security",
+  "cloud security": "cloud-security",
+  "threat detection": "threat-detection",
+  "threat hunting": "threat-hunting",
+  "threat intelligence": "threat-intelligence",
+  "security investigation": "security-investigation",
+  "security investigations": "security-investigation",
+  "incident response": "incident-response",
+  "security operations": "soc",
+  "security operations center": "soc",
+  "identity threat detection and response": "identity-threat-detection-and-response",
+  itdr: "identity-threat-detection-and-response",
+  edr: "endpoint-detection-and-response",
+  "endpoint detection and response": "endpoint-detection-and-response",
+  "mitre attack": "mitre-attack",
+  "mitre att&ck": "mitre-attack",
+  "penetration testing": "penetration-testing",
+  pentest: "penetration-testing",
+  pentesting: "penetration-testing",
+  "ethical hacking": "penetration-testing",
+  "reverse engineering": "reverse-engineering",
+  "malware analysis": "malware-analysis",
+  "digital forensics": "forensics",
+  "windows forensics": "windows-forensics",
+  "cloud forensics": "cloud-forensics",
+  "detection engineering": "detection-engineering",
+  "detection authoring": "detection-engineering",
+  "attacker tradecraft": "adversary-tradecraft",
+  "adversary tradecraft": "adversary-tradecraft",
+  "attacker landscape": "adversary-tradecraft",
+  "kill chain": "kill-chain",
+  "attacker kill chain": "kill-chain",
+  "cyber attack": "cyber-attack",
+  "cyber attacks": "cyber-attack",
+  "cyber-attacks": "cyber-attack",
+  "identity based attacks": "identity-based-attacks",
+  "identity-based attacks": "identity-based-attacks",
+  "identity protection": "identity-protection",
+  "hybrid identity": "hybrid-identity",
+  "active directory": "active-directory",
+  "windows internals": "windows-internals",
+  "vulnerability assessment": "vulnerability-assessment",
+  "vulnerability management": "vulnerability-management",
+  "security research": "security-research",
+  "security researcher": "security-research",
+  "zero trust": "zero-trust",
+  "security copilot": "security-copilot",
+  "enterprise security": "enterprise-security",
+};
+
+export const NETWORKING_ALIASES: Readonly<Record<string, string>> = {
+  "tcp/ip": "tcp-ip",
+  "tcp ip": "tcp-ip",
+  tcpip: "tcp-ip",
+  "computer networks": "networking",
+  "computer networking": "networking",
+  "network protocols": "networking",
+  "networking protocols": "networking",
+  "network security": "network-security",
+  "packet analysis": "packet-analysis",
+  "packet capture": "packet-analysis",
+  pcap: "packet-analysis",
+  "traffic analysis": "network-traffic-analysis",
+  "network traffic analysis": "network-traffic-analysis",
+  "wire shark": "wireshark",
+  tshark: "wireshark",
+  firewalls: "firewall",
+  "osi model": "osi-model",
+  "load balancing": "load-balancing",
+};
+
+/**
+ * Fragments where `/` is part of one concept rather than a separator between
+ * two. Applied before compound splitting, so `tcp/ip` survives while `html/css`
+ * and `aws/gcp` are correctly split into two skills.
+ */
+export const SLASH_COMPOUNDS: Readonly<Record<string, string>> = {
+  "tcp/ip": "tcp-ip",
+  "ci/cd": "ci-cd",
+  "a/b": "a-b",
+  "i/o": "i-o",
+  "s/mime": "s-mime",
+  "udp/ip": "udp-ip",
+};
+
 export const SKILL_ALIASES: Readonly<Record<string, string>> = {
   ...LANGUAGE_ALIASES,
   ...FRONTEND_ALIASES,
@@ -331,4 +429,6 @@ export const SKILL_ALIASES: Readonly<Record<string, string>> = {
   ...AI_ML_ALIASES,
   ...MOBILE_ALIASES,
   ...CONCEPT_ALIASES,
+  ...SECURITY_ALIASES,
+  ...NETWORKING_ALIASES,
 };

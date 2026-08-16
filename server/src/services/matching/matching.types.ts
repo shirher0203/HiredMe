@@ -42,6 +42,30 @@ export interface JobAnalysis {
 }
 
 /**
+ * How a profile skill relates to a required skill.
+ *
+ * `exact`   — the same string on both sides.
+ * `alias`   — different wording, same canonical skill (react.js / react).
+ * `related` — an explicitly asserted relationship, either from the job's
+ *             `skillRelations` or from the curated `SKILL_RELATIONS` map.
+ *             Belonging to the same family is deliberately NOT enough.
+ * `none`    — no relationship established.
+ */
+export type SkillMatchTier = "exact" | "alias" | "related" | "none";
+
+export interface SkillMatchResult {
+  tier: SkillMatchTier;
+  /** Fraction of the requirement this match satisfies. */
+  credit: number;
+  /** The profile skill that produced the match, canonical form. */
+  matchedBy: string | null;
+  /** Human-readable justification, safe to show in the UI. */
+  reason: string;
+  /** Family of the required skill, when the taxonomy knows it. */
+  family?: string;
+}
+
+/**
  * Final per-(user, job) match result.
  * Produced by `buildDeterministicMatch` / `calculateMatch`.
  * `finalScore` and `algorithmicScore` are computed in deterministic code;

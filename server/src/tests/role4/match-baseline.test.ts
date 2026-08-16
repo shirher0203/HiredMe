@@ -92,13 +92,30 @@ describe("Microsoft baseline (pre-graded-matching behaviour)", () => {
   });
 
   describe("skill representation", () => {
-    it("leaves job-side title-case phrases uncanonicalized beyond lowercasing", () => {
+    // Updated when the security aliases landed: these phrases used to pass
+    // through as lowercased prose because the dictionary had no security
+    // coverage at all. They are canonical now — and the score below is still
+    // zero, which is the point. Canonicalizing both sides is necessary but not
+    // sufficient; only graded credit fixes the score.
+    it("canonicalizes job-side security phrases", () => {
       expect(normalizeSkills(PARTIAL_ANALYSIS.requiredSkills)).toEqual([
-        "identity threat detection and response",
+        "identity-threat-detection-and-response",
         "cybersecurity",
-        "threat detection",
-        "security investigation",
+        "threat-detection",
+        "security-investigation",
       ]);
+    });
+
+    it("still scores zero once both sides are canonical", () => {
+      const match = buildDeterministicMatch(
+        normalizeSkills([...SECURITY_CANDIDATE_SKILLS]),
+        normalizeSkills(PARTIAL_ANALYSIS.requiredSkills),
+        normalizeSkills(PARTIAL_ANALYSIS.advantageSkills),
+        AI_SCORE,
+        "Canonical on both sides."
+      );
+
+      expect(match.algorithmicScore).toBe(0);
     });
 
     it("keeps multi-concept CV blobs as single opaque tokens", () => {
