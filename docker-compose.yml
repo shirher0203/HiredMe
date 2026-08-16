@@ -45,6 +45,7 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-lite-latest}
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-30000}
       AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_TOTAL_BUDGET_MS: ${AI_TOTAL_BUDGET_MS:-45000}
       USE_MOCK_AI: ${USE_MOCK_AI:-false}
       UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
     volumes:

@@ -49,6 +49,7 @@ import type {
 
 import {
   callAi,
+  createAiDeadline,
   getActiveModelName,
   isApiKeyConfigured,
   type AiCallOptions,
@@ -274,13 +275,21 @@ const RETRY_SUFFIX =
 /**
  * Single-retry helper for AI calls.
  *
- * Retry policy (per PROJECT_PLAN_ROLE4.md):
- *   - The first `callAi` call is NOT retried — transport / config errors
- *     (e.g. missing GEMINI_API_KEY) bubble up as-is.
- *   - Only parse / validation failures trigger a retry, with a stricter
- *     follow-up prompt.
- *   - At most one retry. If the retry also fails, throw a descriptive
- *     error naming the function.
+ * Two retry concerns meet here, and they are deliberately not the same thing:
+ *
+ *   - Transport failures (429, 503, socket errors, timeouts) are retried inside
+ *     `callAi`. This function does not retry them and must not: adding a second
+ *     transport retry would multiply the attempt count.
+ *   - Parse / validation failures are retried here, exactly once, by re-asking
+ *     with a stricter prompt. If the retry also fails to validate, a descriptive
+ *     error naming the function is thrown.
+ *   - Config errors (e.g. missing GEMINI_API_KEY) are non-retryable at both
+ *     layers and surface on the first attempt.
+ *
+ * Both `callAi` calls share one deadline created here, so the whole logical
+ * operation — every transport attempt of both calls, plus their backoffs — is
+ * bounded by `AI_TOTAL_BUDGET_MS`. Without it the layers compose
+ * multiplicatively: two calls x (1 + AI_MAX_RETRIES) attempts x AI_TIMEOUT_MS.
  */
 async function withOneRetry<T>(
   functionName: string,
@@ -288,7 +297,7 @@ async function withOneRetry<T>(
   parseAndValidate: (raw: string) => T,
   onRawOutput?: (raw: string) => void
 ): Promise<T> {
-  const config = configFor(functionName);
+  const config = { ...configFor(functionName), deadlineAt: createAiDeadline() };
   const rawFirst = await callAi(prompt, config);
   try {
     const out = parseAndValidate(rawFirst);

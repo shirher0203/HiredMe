@@ -9,6 +9,7 @@
 
 jest.mock("../../services/ai/ai.client", () => ({
   callAi: jest.fn(),
+  createAiDeadline: jest.fn(() => Date.now() + 45_000),
   getActiveModelName: jest.fn(() => "gemini-test-model"),
   isApiKeyConfigured: jest.fn(() => true),
 }));

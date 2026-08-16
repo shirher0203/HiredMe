@@ -28,9 +28,23 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_RETRIES = 2;
 
 /**
- * Backoff before retry attempt n. Worst case with the default two retries is
- * three attempts plus 2s of waiting, which keeps the whole call inside a
- * predictable ceiling: TIMEOUT_MS * 3 + 2000.
+ * Ceiling for one *logical* AI operation, covering every attempt made on its
+ * behalf: the transport retries here plus the validation retry in
+ * ai.service.ts, which reuses the same deadline.
+ *
+ * This exists because the two retry layers multiply. Per-attempt timeout and
+ * per-call retry counts alone bound `callAiWithRetry` at
+ * TIMEOUT_MS * (1 + MAX_RETRIES) + backoff, but the service layer calls it
+ * twice, so the real worst case was double that — around three minutes for a
+ * single service function, and twice again for a Match, which issues two
+ * service calls in sequence. A shared deadline bounds the whole operation
+ * regardless of how the layers compose.
+ */
+export const DEFAULT_TOTAL_BUDGET_MS = 45_000;
+
+/**
+ * Backoff before retry attempt n. Applied only when the remaining budget can
+ * still accommodate it.
  */
 export const RETRY_BACKOFF_MS = [500, 1500] as const;
 
@@ -52,6 +66,13 @@ export interface AiCallOptions {
   maxOutputTokens?: number;
   /** Ask the provider for `application/json` instead of free text. */
   jsonMode?: boolean;
+  /**
+   * Epoch ms after which no further work may start for this logical operation.
+   * Create it once per operation with `createAiDeadline()` and pass the same
+   * value to every call made on that operation's behalf. Omitted means each
+   * call gets its own fresh budget.
+   */
+  deadlineAt?: number;
 }
 
 export class AiClientError extends Error {
@@ -90,6 +111,40 @@ export function getAiTimeoutMs(): number {
 
 export function getAiMaxRetries(): number {
   return readPositiveIntEnv("AI_MAX_RETRIES", DEFAULT_MAX_RETRIES, 5);
+}
+
+export function getAiTotalBudgetMs(): number {
+  const value = readPositiveIntEnv(
+    "AI_TOTAL_BUDGET_MS",
+    DEFAULT_TOTAL_BUDGET_MS,
+    600_000
+  );
+  return value === 0 ? DEFAULT_TOTAL_BUDGET_MS : value;
+}
+
+/**
+ * Start a budget for one logical AI operation. Call once, then thread the
+ * result through every `callAi` made for that operation.
+ */
+export function createAiDeadline(): number {
+  return Date.now() + getAiTotalBudgetMs();
+}
+
+/** Milliseconds left before `deadlineAt`, or `Infinity` when unbudgeted. */
+function remainingBudgetMs(deadlineAt: number | undefined): number {
+  if (deadlineAt === undefined) return Number.POSITIVE_INFINITY;
+  return deadlineAt - Date.now();
+}
+
+/**
+ * Non-retryable on purpose: the budget covers the whole operation, so there is
+ * nothing left for another layer to retry into.
+ */
+function budgetExhaustedError(): AiClientError {
+  return new AiClientError(
+    `AI operation exceeded its ${getAiTotalBudgetMs()}ms total budget`,
+    { retryable: false }
+  );
 }
 
 export function getActiveModelName(): string {
@@ -304,6 +359,10 @@ function assertUsableFinishReason(finishReason: string | undefined): void {
 /**
  * One provider attempt: timed out on its own, never retried.
  * Exported so the retry policy can be tested independently of it.
+ *
+ * When `options.deadlineAt` is set, the per-attempt timeout is clamped to the
+ * budget still remaining, so a single attempt can never run past the deadline
+ * for the whole operation.
  */
 export async function callAiOnce(
   prompt: string,
@@ -315,7 +374,12 @@ export async function callAiOnce(
     });
   }
 
-  const timeoutMs = getAiTimeoutMs();
+  const remaining = remainingBudgetMs(options.deadlineAt);
+  if (remaining <= 0) {
+    throw budgetExhaustedError();
+  }
+
+  const timeoutMs = Math.min(getAiTimeoutMs(), remaining);
   const config = resolveGenerationConfig(options);
   const modelName = getActiveModelName();
   const start = Date.now();
@@ -375,6 +439,11 @@ export async function callAiOnce(
  * Retries only overload/throttle/transport classes, at most `AI_MAX_RETRIES`
  * times, with a fixed backoff. Config, auth and validation failures fail on the
  * first attempt — retrying those only delays the error the caller needs to see.
+ *
+ * `options.deadlineAt` bounds the total: a retry is abandoned when the budget
+ * left cannot cover its backoff, and each attempt's own timeout is clamped to
+ * what remains. This is the only retry loop in the client — the service layer's
+ * validation retry shares this same deadline rather than adding a second one.
  */
 export async function callAiWithRetry(
   prompt: string,
@@ -392,6 +461,13 @@ export async function callAiWithRetry(
 
       const backoff =
         RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)];
+
+      // Waiting out a backoff we cannot afford would only push the failure past
+      // the deadline. Surface the provider's error now instead.
+      if (remainingBudgetMs(options.deadlineAt) <= backoff) {
+        throw err;
+      }
+
       logAiClientRetry({
         model: getActiveModelName(),
         attempt: attempt + 1,
@@ -406,8 +482,13 @@ export async function callAiWithRetry(
 }
 
 /**
- * Default entry point for the service layer: a single logical AI request,
- * retried within its budget.
+ * Default entry point for the service layer: a single provider request, retried
+ * within the operation's budget.
+ *
+ * Callers that make more than one request for the same logical operation — such
+ * as `withOneRetry`, which re-asks with a stricter prompt — must create one
+ * deadline with `createAiDeadline()` and pass it to every call, so the operation
+ * as a whole stays bounded.
  */
 export async function callAi(
   prompt: string,
