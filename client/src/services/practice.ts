@@ -97,6 +97,23 @@ export async function sendPracticeMessage(
   );
 }
 
+/**
+ * Replaces the questions the user has not answered yet. Answered questions and
+ * their evaluations are preserved by the server.
+ */
+export async function regeneratePracticeQuestions(
+  sessionId: string
+): Promise<{ questions: InterviewQuestion[] }> {
+  return requestJson<{ questions: InterviewQuestion[] }>(
+    `/api/practice/sessions/${sessionId}/regenerate`,
+    {
+      method: "POST",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to regenerate questions."
+  );
+}
+
 export async function getPracticeSummary(
   sessionId: string
 ): Promise<InterviewAttemptSummary> {

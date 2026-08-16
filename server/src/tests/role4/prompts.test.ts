@@ -212,6 +212,46 @@ describe("buildGenerateQuestionsPrompt", () => {
     expect(defaulted).toContain("exactly 2");
   });
 
+  it("omits the exclusion block when nothing has been asked", () => {
+    expect(prompt).not.toContain("Already asked");
+  });
+
+  it("lists already-asked questions and instructs avoidance", () => {
+    const withExclusions = buildGenerateQuestionsPrompt({
+      interviewType: "technical",
+      profileSkills: ["react"],
+      count: 3,
+      excludeQuestions: [
+        "Explain the virtual DOM.",
+        "  ",
+        "How does useEffect cleanup work?",
+      ],
+    });
+
+    expect(withExclusions).toContain("Already asked");
+    expect(withExclusions).toContain("- Explain the virtual DOM.");
+    expect(withExclusions).toContain("- How does useEffect cleanup work?");
+    expect(withExclusions).toContain("do NOT repeat these");
+    expect(withExclusions).toContain("do not rephrase them into the same question");
+    // Blank entries are dropped rather than emitted as empty bullets.
+    expect(withExclusions).not.toContain("- \n");
+  });
+
+  it("bounds the exclusion list so a long history cannot dominate the prompt", () => {
+    const many = Array.from({ length: 60 }, (_, i) => `Question number ${i}?`);
+    const withExclusions = buildGenerateQuestionsPrompt({
+      interviewType: "technical",
+      profileSkills: ["react"],
+      count: 3,
+      excludeQuestions: many,
+    });
+
+    const listed = withExclusions
+      .split("\n")
+      .filter((line) => line.startsWith("- Question number "));
+    expect(listed).toHaveLength(25);
+  });
+
   it("honors Hebrew when requested", () => {
     const hebrew = buildGenerateQuestionsPrompt({
       interviewType: "hr",

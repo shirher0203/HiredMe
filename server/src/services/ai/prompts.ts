@@ -235,7 +235,12 @@ export interface GenerateQuestionsPromptInput {
   readonly jobRequiredSkills?: string[];
   readonly count: number;
   readonly language?: "en" | "he";
+  /** Questions the candidate has already been asked, to be avoided. */
+  readonly excludeQuestions?: string[];
 }
+
+/** Keeps the exclusion block bounded so a long history cannot dominate. */
+const MAX_EXCLUDED_QUESTIONS = 25;
 
 export function buildGenerateQuestionsPrompt(
   input: GenerateQuestionsPromptInput
@@ -253,6 +258,20 @@ export function buildGenerateQuestionsPrompt(
 
   const language = input.language ?? "en";
   const jobSkills = input.jobRequiredSkills ?? [];
+  const excluded = (input.excludeQuestions ?? [])
+    .map((question) => question.trim())
+    .filter((question) => question !== "")
+    .slice(0, MAX_EXCLUDED_QUESTIONS);
+
+  const exclusionBlock =
+    excluded.length === 0
+      ? []
+      : [
+          "",
+          "Already asked — do NOT repeat these, and do not rephrase them into the same question:",
+          ...excluded.map((question) => `- ${question}`),
+          "Cover different topics or a different angle on the same skill.",
+        ];
 
   return [
     SYSTEM_HEADER,
@@ -271,6 +290,7 @@ export function buildGenerateQuestionsPrompt(
     "",
     formatStringList("Candidate skills", input.profileSkills),
     formatStringList("Job required skills", jobSkills),
+    ...exclusionBlock,
   ].join("\n");
 }
 

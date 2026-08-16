@@ -203,6 +203,20 @@ function requireEnum<T extends string>(
   return value as T;
 }
 
+/**
+ * Fisher-Yates. The previous `sort(() => 0.5 - Math.random())` is not a
+ * shuffle: comparator results are inconsistent, so the permutation it produces
+ * is biased toward the original order.
+ */
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function ensureQuestionIds(
   questions: InterviewQuestion[]
 ): InterviewQuestion[] {
@@ -1350,10 +1364,16 @@ export async function generateInterviewQuestions(
 ): Promise<{ questions: InterviewQuestion[] }> {
   return instrument("generateInterviewQuestions", async (ctx) => {
     if (isMockMode()) {
-      // In mock mode, shuffle and select subset to simulate variation
       const timestamp = Date.now();
-      const shuffled = [...mockInterviewQuestions].sort(() => 0.5 - Math.random());
-      const sliced = shuffled.slice(0, Math.max(0, input.count));
+      // Prefer questions the caller has not already seen, then fill from the
+      // rest, so mock mode reflects the exclusion behaviour too.
+      const excluded = new Set(
+        (input.excludeQuestions ?? []).map((question) => question.trim())
+      );
+      const unseen = mockInterviewQuestions.filter((q) => !excluded.has(q.question));
+      const seen = mockInterviewQuestions.filter((q) => excluded.has(q.question));
+      const pool = shuffle([...unseen]).concat(shuffle([...seen]));
+      const sliced = pool.slice(0, Math.max(0, input.count));
       const uniqueQuestions = sliced.map((q, i) => ({
         ...q,
         id: `q_${timestamp}_${i}`,
@@ -1367,6 +1387,7 @@ export async function generateInterviewQuestions(
       jobRequiredSkills: input.jobRequiredSkills,
       count: input.count,
       language: input.language,
+      excludeQuestions: input.excludeQuestions,
     });
     ctx.recordPrompt(prompt);
 

@@ -2,7 +2,12 @@ import { type FormEvent, useId, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import type { AnswerEvaluation, InterviewQuestion, InterviewAttemptSummary } from "../types/interview";
 import { fetchJobsBoard } from "../services/jobs";
-import { createPracticeSession, sendPracticeMessage, getPracticeSummary } from "../services/practice";
+import {
+  createPracticeSession,
+  sendPracticeMessage,
+  getPracticeSummary,
+  regeneratePracticeQuestions,
+} from "../services/practice";
 import { getUserProfile } from "../services/profile";
 import type { Job } from "../types/jobs";
 import type { ParsedResume } from "../types/parsedResume";
@@ -222,7 +227,12 @@ export function InterviewPage() {
   const [summary, setSummary] = useState<InterviewAttemptSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const summaryFetchedRef = useRef(false);
+  // Ids the user has already answered this session, so regeneration can land on
+  // the first genuinely new question.
+  const answeredIdsRef = useRef<Set<string>>(new Set());
 
   const total = questions.length;
   const progressLabel = `Question ${step + 1} of ${total}`;
@@ -231,6 +241,35 @@ export function InterviewPage() {
     ? jobs?.find((job) => job.id === selectedJobId) ?? null
     : null;
   const current = questions[step];
+
+  /**
+   * Asks the server for a different set of unanswered questions. Answered
+   * questions stay where they are, so the step index is moved to the first
+   * replacement rather than reset.
+   */
+  async function onRegenerate() {
+    if (!practiceSessionId || regenerating || loading) return;
+
+    setRegenerating(true);
+    setRegenerateError(null);
+    try {
+      const result = await regeneratePracticeQuestions(practiceSessionId);
+      setQuestions(result.questions);
+      setDraft("");
+      setSubmittedAnswer(null);
+      setEvaluation(null);
+      const firstReplacement = result.questions.findIndex(
+        (question) => !answeredIdsRef.current.has(question.id)
+      );
+      setStep(firstReplacement === -1 ? 0 : firstReplacement);
+    } catch (err) {
+      setRegenerateError(
+        err instanceof Error ? err.message : "Failed to regenerate questions."
+      );
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -247,6 +286,7 @@ export function InterviewPage() {
       );
       setSubmittedAnswer(text);
       setEvaluation(result.evaluation);
+      answeredIdsRef.current.add(current.id);
     } finally {
       setLoading(false);
     }
@@ -475,11 +515,23 @@ export function InterviewPage() {
 
             {current ? (
             <section className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/40 p-6 shadow-md shadow-indigo-500/5 ring-1 ring-indigo-500/10 sm:p-8">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-800">
               {current.topic}
             </span>
+            <button
+              type="button"
+              onClick={() => void onRegenerate()}
+              disabled={regenerating || loading}
+              title="Replace the questions you have not answered yet"
+              className="rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {regenerating ? "Regenerating…" : "New questions"}
+            </button>
           </div>
+          {regenerateError ? (
+            <p className="mt-3 text-sm text-red-600">{regenerateError}</p>
+          ) : null}
           <h2 className="mt-4 text-lg font-semibold leading-snug text-slate-900">
             {current.question}
           </h2>
