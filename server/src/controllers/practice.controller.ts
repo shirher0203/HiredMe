@@ -10,6 +10,7 @@ import {
   summarizeInterviewAttempt,
 } from "../services/ai/ai.service";
 import type { ParsedResume } from "../services/ai/parsed-resume.types";
+import { enrichFromResume } from "../services/matching/resume-adapter";
 
 interface CreateSessionBody {
   interviewType: "hr" | "technical";
@@ -31,14 +32,48 @@ const EXCLUSION_HISTORY_SESSIONS = 3;
  * decided what the model saw about the user. Deriving them here makes the
  * question set a function of the stored profile instead.
  */
-async function loadProfileSkills(userId: string): Promise<string[]> {
+async function loadSavedResume(userId: string): Promise<ParsedResume | null> {
   const saved = await UserProfileModel.findOne({ userId }).lean();
-  if (!saved?.profile) return [];
-  const resume = saved.profile as ParsedResume;
+  return (saved?.profile as ParsedResume | undefined) ?? null;
+}
+
+function resumeSkills(resume: ParsedResume | null): string[] {
+  if (!resume) return [];
   return [
     ...(resume.skills?.technical_skills ?? []),
     ...(resume.skills?.tools_and_software ?? []),
   ].filter((skill): skill is string => typeof skill === "string" && skill.trim() !== "");
+}
+
+/**
+ * CV summaries for HR question generation.
+ *
+ * Reuses `enrichFromResume`, which already produces exactly these summaries for
+ * the resume-aware match prompt, so HR grounding costs no new computation and
+ * cannot drift from what matching sees.
+ */
+function buildCvContext(resume: ParsedResume | null) {
+  if (!resume) return undefined;
+
+  const enrichment = enrichFromResume(resume);
+  const achievements = (resume.work_experience ?? [])
+    .flatMap((entry) => entry.achievements ?? [])
+    .filter((item): item is string => typeof item === "string" && item.trim() !== "");
+
+  const context = {
+    workExperienceSummary: enrichment.workExperienceSummary,
+    topProjectsSummary: enrichment.topProjectsSummary,
+    educationSummary: enrichment.educationSummary,
+    achievements,
+  };
+
+  const hasAnything =
+    Boolean(context.workExperienceSummary?.trim()) ||
+    Boolean(context.topProjectsSummary?.trim()) ||
+    Boolean(context.educationSummary?.trim()) ||
+    achievements.length > 0;
+
+  return hasAnything ? context : undefined;
 }
 
 /**
@@ -90,7 +125,12 @@ export async function createPracticeSession(
     const count = typeof body.count === "number" ? body.count : 5;
     // body.profileSkills is still accepted by the schema for one release so the
     // current client keeps working, but it is deliberately not read.
-    const profileSkills = await loadProfileSkills(userId);
+    const savedResume = await loadSavedResume(userId);
+    const profileSkills = resumeSkills(savedResume);
+    // HR interviews are about the candidate's history, so they get the CV
+    // summaries. Technical interviews stay scoped to the job's skills.
+    const cvContext =
+      interviewType === "hr" ? buildCvContext(savedResume) : undefined;
     // Start from any skills the frontend supplied; if the linked job has its
     // own analyzed required skills, those take precedence below.
     let jobRequiredSkills = Array.isArray(body.jobRequiredSkills)
@@ -123,6 +163,7 @@ export async function createPracticeSession(
       jobRequiredSkills,
       count: Math.max(1, Math.min(10, count)),
       language,
+      cvContext,
     });
 
     const session = await PracticeSessionModel.create({
@@ -181,10 +222,13 @@ export async function regeneratePracticeQuestions(
       );
     }
 
-    const [profileSkills, excludeQuestions] = await Promise.all([
-      loadProfileSkills(userId),
+    const [savedResume, excludeQuestions] = await Promise.all([
+      loadSavedResume(userId),
       collectAskedQuestions(userId, session),
     ]);
+    const profileSkills = resumeSkills(savedResume);
+    const cvContext =
+      session.interviewType === "hr" ? buildCvContext(savedResume) : undefined;
 
     let jobRequiredSkills: string[] | undefined;
     if (session.jobId) {
@@ -205,6 +249,7 @@ export async function regeneratePracticeQuestions(
       jobRequiredSkills,
       count: unansweredCount,
       excludeQuestions,
+      cvContext,
     });
 
     // Fresh ids for the replacements so they cannot collide with an answered

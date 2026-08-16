@@ -1,6 +1,11 @@
 import { type FormEvent, useId, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import type { AnswerEvaluation, InterviewQuestion, InterviewAttemptSummary } from "../types/interview";
+import type {
+  AnswerEvaluation,
+  InterviewQuestion,
+  InterviewAttemptSummary,
+  InterviewType,
+} from "../types/interview";
 import { fetchJobsBoard } from "../services/jobs";
 import {
   createPracticeSession,
@@ -212,6 +217,7 @@ export function InterviewPage() {
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
+  const [interviewType, setInterviewType] = useState<InterviewType>("technical");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [startingPractice, setStartingPractice] = useState(false);
@@ -353,8 +359,10 @@ export function InterviewPage() {
 
   async function startPractice() {
     if (startingPractice) return;
-    const jobIdToUse = pendingJobId ?? jobs?.[0]?.id;
-    if (!jobIdToUse) return;
+    // An HR interview is about the candidate, so it can run without a job.
+    // A technical interview still needs one to scope the questions.
+    const jobIdToUse = pendingJobId ?? undefined;
+    if (interviewType === "technical" && !jobIdToUse) return;
 
     setSessionError(null);
     setStartingPractice(true);
@@ -371,15 +379,15 @@ export function InterviewPage() {
       const language = userProfile?.parsed_metadata.language_detected === "he" ? "he" : "en";
 
       const session = await createPracticeSession({
-        interviewType: "technical",
-        jobId: jobIdToUse,
+        interviewType,
+        ...(jobIdToUse ? { jobId: jobIdToUse } : {}),
         count: 5,
         profileSkills,
         language,
       });
       setQuestions(session.questions);
       setPracticeSessionId(session._id);
-      setSelectedJobId(jobIdToUse);
+      setSelectedJobId(jobIdToUse ?? null);
       setStep(0);
       setDraft("");
       setSubmittedAnswer(null);
@@ -413,10 +421,40 @@ export function InterviewPage() {
     <div className="min-h-full bg-gradient-to-br from-indigo-50/50 via-white to-violet-50/40">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Application selector: require user to pick an application before practicing */}
-        {!selectedJobId && (
+        {!practiceSessionId && (
           <section className="mb-8 rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-900">Select an application to practice for</h3>
-            <p className="mt-2 text-sm text-slate-600">Choose one of your saved applications so the practice can be tailored to that role.</p>
+            <h3 className="text-lg font-semibold text-slate-900">Start a practice interview</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              {interviewType === "technical"
+                ? "Choose one of your saved applications so the questions can be tailored to that role."
+                : "HR questions are based on your saved CV. Pick an application if you want, or start without one."}
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Interview type">
+              {(
+                [
+                  ["technical", "Technical"],
+                  ["hr", "HR"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setInterviewType(value);
+                    setSessionError(null);
+                  }}
+                  aria-pressed={interviewType === value}
+                  className={
+                    interviewType === value
+                      ? "rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+                      : "rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
             <div className="mt-4">
               {jobsLoading ? (
@@ -431,7 +469,11 @@ export function InterviewPage() {
                     onChange={(e) => setPendingJobId(e.target.value || null)}
                     className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   >
-                    <option value="">-- pick an application --</option>
+                    <option value="">
+                      {interviewType === "hr"
+                        ? "-- no application (CV only) --"
+                        : "-- pick an application --"}
+                    </option>
                     {jobs.map((j) => (
                       <option key={j.id} value={j.id}>
                         {j.company ? `${j.company} — ${j.title}` : j.title}
@@ -441,7 +483,9 @@ export function InterviewPage() {
                   <button
                     type="button"
                     onClick={startPractice}
-                    disabled={startingPractice || !pendingJobId}
+                    disabled={
+                      startingPractice || (interviewType === "technical" && !pendingJobId)
+                    }
                     className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {startingPractice ? "Starting…" : "Start practice"}
@@ -452,15 +496,33 @@ export function InterviewPage() {
                   ) : null}
                 </>
               ) : (
-                <div className="mt-2 flex items-center gap-3">
-                  <p className="text-sm text-slate-600">No applications found.</p>
-                  <Link to="/applications" className="text-sm font-semibold text-indigo-700">Go to Applications</Link>
+                <div className="mt-2 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-slate-600">No applications found.</p>
+                    <Link to="/applications" className="text-sm font-semibold text-indigo-700">Go to Applications</Link>
+                  </div>
+                  {/* An HR interview only needs a CV, so it stays available here. */}
+                  {interviewType === "hr" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={startPractice}
+                        disabled={startingPractice}
+                        className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {startingPractice ? "Starting…" : "Start HR practice"}
+                      </button>
+                      {sessionError ? (
+                        <p className="text-sm text-red-600">{sessionError}</p>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>
           </section>
         )}
-        {selectedJobId && (
+        {practiceSessionId && (
           <>
             <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>

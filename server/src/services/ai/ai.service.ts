@@ -1388,6 +1388,7 @@ export async function generateInterviewQuestions(
       count: input.count,
       language: input.language,
       excludeQuestions: input.excludeQuestions,
+      cvContext: input.cvContext,
     });
     ctx.recordPrompt(prompt);
 

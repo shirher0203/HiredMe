@@ -229,6 +229,18 @@ export function buildResumeAwareSemanticMatchPrompt(
   ].join("\n");
 }
 
+/**
+ * Summaries of the candidate's CV, used to ground HR questions in what they
+ * actually did. Already produced by `enrichFromResume` for the resume-aware
+ * match prompt, so nothing new is computed for this.
+ */
+export interface QuestionCvContext {
+  readonly workExperienceSummary?: string;
+  readonly topProjectsSummary?: string;
+  readonly educationSummary?: string;
+  readonly achievements?: string[];
+}
+
 export interface GenerateQuestionsPromptInput {
   readonly interviewType: "hr" | "technical";
   readonly profileSkills: string[];
@@ -237,10 +249,21 @@ export interface GenerateQuestionsPromptInput {
   readonly language?: "en" | "he";
   /** Questions the candidate has already been asked, to be avoided. */
   readonly excludeQuestions?: string[];
+  /** Only consumed for HR interviews. */
+  readonly cvContext?: QuestionCvContext;
 }
 
 /** Keeps the exclusion block bounded so a long history cannot dominate. */
 const MAX_EXCLUDED_QUESTIONS = 25;
+
+/** Each CV summary is capped so a long resume cannot dominate the prompt. */
+const MAX_CV_SUMMARY_CHARS = 1200;
+const MAX_ACHIEVEMENTS = 6;
+
+function capText(text: string, max: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max)}…`;
+}
 
 export function buildGenerateQuestionsPrompt(
   input: GenerateQuestionsPromptInput
@@ -273,6 +296,56 @@ export function buildGenerateQuestionsPrompt(
           "Cover different topics or a different angle on the same skill.",
         ];
 
+  // CV grounding is HR-only on purpose: a technical interview is scoped by the
+  // job's required skills, and leaking resume prose into it would change the
+  // questions those sessions have always produced.
+  const cv = input.interviewType === "hr" ? input.cvContext : undefined;
+  const cvLines: string[] = [];
+  if (cv) {
+    const achievements = (cv.achievements ?? [])
+      .map((item) => item.trim())
+      .filter((item) => item !== "")
+      .slice(0, MAX_ACHIEVEMENTS);
+
+    const parts: string[] = [];
+    if (cv.workExperienceSummary?.trim()) {
+      parts.push(`Work experience: ${capText(cv.workExperienceSummary, MAX_CV_SUMMARY_CHARS)}`);
+    }
+    if (cv.topProjectsSummary?.trim()) {
+      parts.push(`Projects: ${capText(cv.topProjectsSummary, MAX_CV_SUMMARY_CHARS)}`);
+    }
+    if (cv.educationSummary?.trim()) {
+      parts.push(`Education: ${capText(cv.educationSummary, MAX_CV_SUMMARY_CHARS)}`);
+    }
+    if (achievements.length > 0) {
+      parts.push(`Achievements: ${achievements.join("; ")}`);
+    }
+
+    if (parts.length > 0) {
+      cvLines.push("", "Candidate CV:", ...parts);
+    }
+  }
+
+  const hrRules =
+    input.interviewType === "hr"
+      ? [
+          "",
+          "HR interview rules:",
+          "Ask about the person and their history, not about syntax or algorithms.",
+          "Include a question about strengths and one about weaknesses or something they would do differently.",
+          "Include a question that asks the candidate to walk through one of their real projects.",
+          "Include a question about a concrete challenge or conflict they faced and how they handled it.",
+          ...(cvLines.length > 0
+            ? [
+                "Anchor each question in a specific entry from the CV above — name the actual company, project, degree or achievement so the candidate recognises it as theirs.",
+                "Use only what the CV states. Never invent an employer, project, technology, date or accomplishment that is not written there. If the CV is thin, ask a general question instead of inventing detail.",
+              ]
+            : [
+                "No CV details are available, so ask general HR questions and do not invent any specifics about the candidate's history.",
+              ]),
+        ]
+      : [];
+
   return [
     SYSTEM_HEADER,
     "",
@@ -290,6 +363,8 @@ export function buildGenerateQuestionsPrompt(
     "",
     formatStringList("Candidate skills", input.profileSkills),
     formatStringList("Job required skills", jobSkills),
+    ...cvLines,
+    ...hrRules,
     ...exclusionBlock,
   ].join("\n");
 }
