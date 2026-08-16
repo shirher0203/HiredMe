@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   completePracticeSession,
   createPracticeSession,
+  listPracticeSessions,
   regeneratePracticeQuestions,
   sendPracticeMessage,
   getPracticeSummary,
@@ -22,8 +23,21 @@ const createSessionSchema = z.object({
   }),
 });
 
+const listSessionsSchema = z.object({
+  query: z.object({
+    jobId: z.string().trim().min(1).optional(),
+    interviewType: z.enum(["hr", "technical"]).optional(),
+    status: z.enum(["active", "completed"]).optional(),
+  }),
+});
+
 export const practiceRouter = Router();
 
+practiceRouter.get(
+  "/sessions",
+  validate(listSessionsSchema),
+  listPracticeSessions
+);
 practiceRouter.post(
   "/sessions",
   validate(createSessionSchema),

@@ -13,6 +13,10 @@ import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuthSession } from "../services/auth";
 import {
+  listPracticeSessions,
+  type PracticeSessionListItem,
+} from "../services/practice";
+import {
   analyzeJob as analyzeSavedJob,
   createJob,
   deleteJob,
@@ -676,6 +680,99 @@ function ResumeFitDetails({ match }: { match: MatchAnalysis }) {
   );
 }
 
+function formatAttemptDate(value: string | null): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString();
+}
+
+/**
+ * Prior interview attempts for this application, newest first, with the change
+ * in score between consecutive attempts. The delta is computed here rather than
+ * server-side — the list already carries everything it needs.
+ */
+function PracticeHistorySection({
+  attempts,
+  loading,
+}: {
+  attempts: PracticeSessionListItem[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-sm text-slate-500">Loading interview history...</p>
+      </section>
+    );
+  }
+
+  if (attempts.length === 0) return null;
+
+  const scored = attempts.filter((attempt) => attempt.overallScore !== null);
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <h3 className="text-base font-semibold text-slate-900">Interview attempts</h3>
+      <ul className="mt-3 space-y-2">
+        {attempts.map((attempt) => {
+          const scoreIndex = scored.findIndex((item) => item.id === attempt.id);
+          const previous = scoreIndex >= 0 ? scored[scoreIndex + 1] : undefined;
+          const delta =
+            attempt.overallScore !== null && previous?.overallScore != null
+              ? attempt.overallScore - previous.overallScore
+              : null;
+
+          return (
+            <li
+              key={attempt.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm"
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-medium capitalize text-slate-800">
+                  {attempt.interviewType}
+                </span>
+                <span className="text-slate-400">·</span>
+                <span className="text-slate-600">
+                  {attempt.answeredCount}/{attempt.questionCount} answered
+                </span>
+                {attempt.status === "active" ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                    in progress
+                  </span>
+                ) : null}
+              </span>
+              <span className="flex items-center gap-3">
+                {attempt.overallScore !== null ? (
+                  <span className="font-semibold tabular-nums text-slate-900">
+                    {attempt.overallScore}
+                    <span className="text-xs font-normal text-slate-400">/100</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-500">no score yet</span>
+                )}
+                {delta !== null && delta !== 0 ? (
+                  <span
+                    className={
+                      delta > 0
+                        ? "text-xs font-semibold text-emerald-700"
+                        : "text-xs font-semibold text-red-700"
+                    }
+                  >
+                    {delta > 0 ? `+${delta}` : delta}
+                  </span>
+                ) : null}
+                <span className="text-xs text-slate-500">
+                  {formatAttemptDate(attempt.completedAt ?? attempt.createdAt)}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function MatchReviewSection({ match }: { match: MatchAnalysis }) {
   return (
     <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
@@ -765,6 +862,8 @@ function JobReviewModal({
   onClose,
   onGoToProfile,
   onReanalyze,
+  attempts,
+  attemptsLoading,
 }: {
   job: Job;
   jobAnalysis: JobAnalysis | null;
@@ -775,6 +874,8 @@ function JobReviewModal({
   onClose: () => void;
   onGoToProfile: () => void;
   onReanalyze: () => void;
+  attempts: PracticeSessionListItem[];
+  attemptsLoading: boolean;
 }) {
   const profileError = error?.toLowerCase().includes("profile") ?? false;
 
@@ -850,6 +951,7 @@ function JobReviewModal({
             <ResumeReviewSection resume={parsedResume} />
             <MatchReviewSection match={matchAnalysis} />
             <JobAnalysisReviewSection analysis={jobAnalysis} />
+            <PracticeHistorySection attempts={attempts} loading={attemptsLoading} />
           </div>
         ) : null}
       </div>
@@ -1094,6 +1196,8 @@ export function ApplicationsBoardPage() {
   const [reviewParsedResume, setReviewParsedResume] = useState<ParsedResume | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewAttempts, setReviewAttempts] = useState<PracticeSessionListItem[]>([]);
+  const [reviewAttemptsLoading, setReviewAttemptsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -1284,6 +1388,13 @@ export function ApplicationsBoardPage() {
     setReviewParsedResume(null);
     setReviewError(null);
     setReviewLoading(true);
+    // Prior attempts are independent of the analysis, so a failure to load them
+    // must not surface as a match error.
+    setReviewAttemptsLoading(true);
+    void listPracticeSessions({ jobId: job.id })
+      .then((result) => setReviewAttempts(result.sessions))
+      .catch(() => setReviewAttempts([]))
+      .finally(() => setReviewAttemptsLoading(false));
     try {
       const result = await analyzeSavedJob(job.id, { force: options.force ?? false });
       setReviewJob(result.job);
@@ -1300,6 +1411,8 @@ export function ApplicationsBoardPage() {
 
   function closeReviewModal() {
     setReviewJob(null);
+    setReviewAttempts([]);
+    setReviewAttemptsLoading(false);
     setReviewJobAnalysis(null);
     setReviewMatchAnalysis(null);
     setReviewParsedResume(null);
@@ -1449,6 +1562,8 @@ export function ApplicationsBoardPage() {
             navigate("/profile");
           }}
           onReanalyze={() => void handleReview(reviewJob, { force: true })}
+          attempts={reviewAttempts}
+          attemptsLoading={reviewAttemptsLoading}
         />
       ) : null}
     </div>

@@ -28,6 +28,38 @@ export const practicePaths = {
       },
     },
   },
+  "/api/practice/sessions/list": {
+    get: {
+      tags: ["Practice"],
+      summary: "List the caller's practice sessions",
+      description:
+        "Newest first. Returns a lightweight view without questions or turns. Served at GET /api/practice/sessions.",
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: "query",
+          name: "jobId",
+          required: false,
+          schema: { type: "string" },
+        },
+        {
+          in: "query",
+          name: "interviewType",
+          required: false,
+          schema: { type: "string", enum: ["hr", "technical"] },
+        },
+        {
+          in: "query",
+          name: "status",
+          required: false,
+          schema: { type: "string", enum: ["active", "completed"] },
+        },
+      ],
+      responses: {
+        "200": { description: "Session list" },
+      },
+    },
+  },
   "/api/practice/sessions/{id}/regenerate": {
     post: {
       tags: ["Practice"],

@@ -23,6 +23,20 @@ export interface CreatePracticeSessionInput {
   jobRequiredSkills?: string[];
 }
 
+/** Lightweight view of a past attempt, as returned by the list endpoint. */
+export interface PracticeSessionListItem {
+  id: string;
+  jobId: string | null;
+  interviewType: InterviewType;
+  status: "active" | "completed";
+  questionCount: number;
+  answeredCount: number;
+  overallScore: number | null;
+  hasSummary: boolean;
+  createdAt: string | null;
+  completedAt: string | null;
+}
+
 export interface InterviewAttemptSummary {
   summary: string;
   overallScore: number;
@@ -111,6 +125,32 @@ export async function regeneratePracticeQuestions(
       headers: requireAuthHeaders(),
     },
     "Failed to regenerate questions."
+  );
+}
+
+/**
+ * Past attempts, newest first. Optionally scoped to one application.
+ */
+export async function listPracticeSessions(
+  filters: {
+    jobId?: string;
+    interviewType?: InterviewType;
+    status?: "active" | "completed";
+  } = {}
+): Promise<{ sessions: PracticeSessionListItem[] }> {
+  const params = new URLSearchParams();
+  if (filters.jobId) params.set("jobId", filters.jobId);
+  if (filters.interviewType) params.set("interviewType", filters.interviewType);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.toString();
+
+  return requestJson<{ sessions: PracticeSessionListItem[] }>(
+    `/api/practice/sessions${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to load practice history."
   );
 }
 

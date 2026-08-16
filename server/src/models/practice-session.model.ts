@@ -32,6 +32,23 @@ const turnSchema = new Schema(
   { _id: false }
 );
 
+/**
+ * The AI-generated attempt summary, persisted so it is generated once.
+ * Absent on sessions completed before it was stored, and on sessions whose
+ * summary generation failed — completion is never blocked on it.
+ */
+const attemptSummarySchema = new Schema(
+  {
+    summary: { type: String, required: true },
+    overallScore: { type: Number, required: true },
+    preserve_points: { type: [String], default: [] },
+    improve_points: { type: [String], default: [] },
+    topics_covered: { type: [String], default: [] },
+    overall_feedback: { type: String, required: true },
+  },
+  { _id: false }
+);
+
 const practiceSessionSchema = new Schema(
   {
     userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
@@ -40,11 +57,14 @@ const practiceSessionSchema = new Schema(
     status: { type: String, enum: ["active", "completed"], default: "active", index: true },
     questions: { type: [questionSchema], default: [] },
     turns: { type: [turnSchema], default: [] },
+    summary: { type: attemptSummarySchema, default: undefined },
+    completedAt: { type: Date },
   },
   { timestamps: true }
 );
 
 practiceSessionSchema.index({ userId: 1, status: 1 });
+practiceSessionSchema.index({ userId: 1, jobId: 1, createdAt: -1 });
 
 export type PracticeSessionDocument = InferSchemaType<typeof practiceSessionSchema> & {
   _id: string;

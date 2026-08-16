@@ -334,6 +334,54 @@ export async function sendPracticeMessage(
   }
 }
 
+type SessionForSummary = {
+  interviewType: "hr" | "technical";
+  jobId?: unknown;
+  questions: { id: string; question: string }[];
+  turns: {
+    questionId: string;
+    userAnswer: string;
+    evaluation: {
+      score: number;
+      clarity: number;
+      correctness: number;
+      depth: number;
+      feedback: string;
+      improvementTips: string[];
+    };
+  }[];
+};
+
+/**
+ * Builds the summarizer input from a session, or null when there is nothing to
+ * summarize.
+ */
+async function buildSummaryInput(session: SessionForSummary) {
+  if (session.turns.length === 0) return null;
+
+  const answers = session.turns.map((turn) => {
+    const question = session.questions.find((q) => q.id === turn.questionId);
+    if (!question) {
+      throw new HttpError(404, "NOT_FOUND", `Question ${turn.questionId} not found`);
+    }
+    return {
+      questionId: turn.questionId,
+      question: question.question,
+      userAnswer: turn.userAnswer,
+      evaluation: turn.evaluation,
+    };
+  });
+
+  const jobTitle = session.jobId
+    ? await JobModel.findOne({ _id: session.jobId })
+        .select("title")
+        .lean()
+        .then((job) => job?.title)
+    : undefined;
+
+  return { interviewType: session.interviewType, answers, jobTitle };
+}
+
 export async function completePracticeSession(
   req: Request,
   res: Response,
@@ -342,21 +390,113 @@ export async function completePracticeSession(
   try {
     const { userId } = requireUser(req);
     const sessionId = requireIdParam(req.params.id);
-    const session = await PracticeSessionModel.findOneAndUpdate(
-      { _id: asObjectId(sessionId), userId },
-      { $set: { status: "completed" } },
-      { new: true }
-    ).lean();
+    const session = await PracticeSessionModel.findOne({
+      _id: asObjectId(sessionId),
+      userId,
+    });
     if (!session) {
       throw new HttpError(404, "NOT_FOUND", "Session not found");
     }
 
-    return res.status(200).json(session);
+    const alreadyCompleted = session.status === "completed";
+    session.status = "completed";
+    if (!session.completedAt) session.completedAt = new Date();
+
+    // Generate the summary once, here, instead of on every view. Completion must
+    // never fail because of it: an unset summary is handled by the fallback in
+    // getPracticeSummary.
+    if (!session.summary && !alreadyCompleted) {
+      try {
+        const input = await buildSummaryInput(session);
+        if (input) {
+          session.summary = await summarizeInterviewAttempt(input);
+        }
+      } catch {
+        // Left unset on purpose; the session is still completed.
+      }
+    }
+
+    await session.save();
+
+    return res.status(200).json(session.toJSON());
   } catch (err) {
     return next(err);
   }
 }
 
+/**
+ * Lightweight list of the caller's sessions, newest first.
+ *
+ * Deliberately does not return questions or turns: the job drawer only needs
+ * enough to show which attempts exist and how they scored.
+ */
+export async function listPracticeSessions(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { userId } = requireUser(req);
+    const filter: Record<string, unknown> = { userId: asObjectId(userId) };
+
+    const { jobId, interviewType, status } = req.query;
+    if (typeof jobId === "string" && jobId.trim() !== "") {
+      filter.jobId = asObjectId(jobId);
+    }
+    if (interviewType === "hr" || interviewType === "technical") {
+      filter.interviewType = interviewType;
+    }
+    if (status === "active" || status === "completed") {
+      filter.status = status;
+    }
+
+    const sessions = await PracticeSessionModel.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .select("jobId interviewType status questions turns summary completedAt createdAt")
+      .lean();
+
+    const items = sessions.map((session) => {
+      const answeredCount = session.turns?.length ?? 0;
+      const scores = (session.turns ?? []).map((turn) => turn.evaluation?.score ?? 0);
+      // Prefer the persisted summary's score; fall back to the mean of the
+      // per-answer scores for sessions completed before summaries were stored.
+      const overallScore =
+        session.summary?.overallScore ??
+        (scores.length > 0
+          ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+          : null);
+
+      return {
+        id: String(session._id),
+        jobId: session.jobId ? String(session.jobId) : null,
+        interviewType: session.interviewType,
+        status: session.status,
+        questionCount: session.questions?.length ?? 0,
+        answeredCount,
+        overallScore,
+        hasSummary: Boolean(session.summary),
+        createdAt: session.createdAt ?? null,
+        // Older completed sessions have no completedAt; fall back to createdAt
+        // so ordering and display never break on them.
+        completedAt: session.completedAt ?? session.createdAt ?? null,
+      };
+    });
+
+    return res.status(200).json({ sessions: items });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * Returns the session's summary.
+ *
+ * The summary used to be regenerated on every request, which re-billed the
+ * provider for each page view and could return different text for the same
+ * finished session. It is now generated at most once and persisted; this handler
+ * only generates when a session has none, which covers sessions completed before
+ * summaries were stored and ones whose generation failed at completion time.
+ */
 export async function getPracticeSummary(
   req: Request,
   res: Response,
@@ -368,38 +508,28 @@ export async function getPracticeSummary(
     const session = await PracticeSessionModel.findOne({
       _id: asObjectId(sessionId),
       userId,
-    }).lean();
+    });
 
     if (!session) {
       throw new HttpError(404, "NOT_FOUND", "Session not found");
+    }
+
+    if (session.summary) {
+      return res.status(200).json(session.summary);
     }
 
     if (session.turns.length === 0) {
       throw new HttpError(400, "VALIDATION_ERROR", "No answers to summarize");
     }
 
-    const answers = session.turns.map((turn) => {
-      const question = session.questions.find((q) => q.id === turn.questionId);
-      if (!question) {
-        throw new HttpError(404, "NOT_FOUND", `Question ${turn.questionId} not found`);
-      }
-      return {
-        questionId: turn.questionId,
-        question: question.question,
-        userAnswer: turn.userAnswer,
-        evaluation: turn.evaluation,
-      };
-    });
+    const input = await buildSummaryInput(session);
+    if (!input) {
+      throw new HttpError(400, "VALIDATION_ERROR", "No answers to summarize");
+    }
 
-    const jobTitle = session.jobId
-      ? await JobModel.findOne({ _id: session.jobId }).select("title").lean().then((j) => j?.title)
-      : undefined;
-
-    const summary = await summarizeInterviewAttempt({
-      interviewType: session.interviewType,
-      answers,
-      jobTitle,
-    });
+    const summary = await summarizeInterviewAttempt(input);
+    session.summary = summary;
+    await session.save();
 
     return res.status(200).json(summary);
   } catch (err) {
