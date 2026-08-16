@@ -1138,6 +1138,11 @@ function JobFormModal({
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [contact, setContact] = useState(initial?.contact ?? "");
   const [jobUrl, setJobUrl] = useState(initial?.jobUrl ?? "");
+  // Nudge only when the user clearly expected the URL to do the work: a link is
+  // present but the description is barely more than an intro paragraph. Advisory
+  // only — it never blocks submitting.
+  const showShortDescriptionHint =
+    jobUrl.trim() !== "" && description.trim().length > 0 && description.trim().length < 400;
   const [status, setStatus] = useState<JobStatus>(initial?.status ?? "applied");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -1228,8 +1233,14 @@ function JobFormModal({
               required
               rows={4}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="Paste the job description..."
+              placeholder="Paste the full job description — this is the only text the AI analyses."
             />
+            {showShortDescriptionHint ? (
+              <p className="mt-1 text-xs text-amber-700">
+                This description is short. Match quality depends on pasting the full
+                posting, not just the intro paragraph.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -1272,6 +1283,10 @@ function JobFormModal({
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               placeholder="https://..."
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Stored as a reference link only. HiredMe does not read the job
+              description from this URL — paste it above.
+            </p>
           </div>
 
           {mode === "create" ? (
