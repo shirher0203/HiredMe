@@ -112,6 +112,26 @@ export async function sendPracticeMessage(
 }
 
 /**
+ * Marks the session finished. The server sets `completedAt` and generates the
+ * attempt summary once, so calling this before reading the summary is what keeps
+ * the summary stable and the attempt visible in history as completed.
+ *
+ * Safe to call more than once: completion is idempotent and never re-summarizes.
+ */
+export async function completePracticeSession(
+  sessionId: string
+): Promise<PracticeSession> {
+  return requestJson<PracticeSession>(
+    `/api/practice/sessions/${sessionId}/complete`,
+    {
+      method: "PATCH",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to complete the session."
+  );
+}
+
+/**
  * Replaces the questions the user has not answered yet. Answered questions and
  * their evaluations are preserved by the server.
  */

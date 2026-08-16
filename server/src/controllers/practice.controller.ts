@@ -402,14 +402,19 @@ export async function completePracticeSession(
       throw new HttpError(404, "NOT_FOUND", "Session not found");
     }
 
-    const alreadyCompleted = session.status === "completed";
     session.status = "completed";
+    // Preserved across repeat calls, so completion stays idempotent: the first
+    // completion's timestamp is the one that sticks.
     if (!session.completedAt) session.completedAt = new Date();
 
-    // Generate the summary once, here, instead of on every view. Completion must
-    // never fail because of it: an unset summary is handled by the fallback in
-    // getPracticeSummary.
-    if (!session.summary && !alreadyCompleted) {
+    // Generate the summary once, here, instead of on every view. Guarded on the
+    // summary rather than on the previous status so that a completion whose
+    // generation failed can succeed on a retry, while a session that already has
+    // one is never summarized twice.
+    //
+    // Completion must never fail because of it: an unset summary is handled by
+    // the fallback in getPracticeSummary.
+    if (!session.summary) {
       try {
         const input = await buildSummaryInput(session);
         if (input) {
@@ -532,8 +537,15 @@ export async function getPracticeSummary(
     }
 
     const summary = await summarizeInterviewAttempt(input);
-    session.summary = summary;
-    await session.save();
+
+    // Only a finished session gets its summary stored. An active one can still
+    // gain answers, and persisting a summary of the answers so far would pin a
+    // partial result: completion skips generation when a summary already exists,
+    // so the partial one would become the permanent final one.
+    if (session.status === "completed") {
+      session.summary = summary;
+      await session.save();
+    }
 
     return res.status(200).json(summary);
   } catch (err) {
