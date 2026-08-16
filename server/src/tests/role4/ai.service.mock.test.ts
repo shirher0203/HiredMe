@@ -372,6 +372,91 @@ describe("ai.service — real-mode paths via mocked callAi (no network)", () => 
     expect(mockedCallAi).toHaveBeenCalledTimes(1);
   });
 
+  it("generateInterviewQuestions: a short response is retried instead of silently accepted", async () => {
+    const short = JSON.stringify({
+      questions: [
+        { id: "a", question: "Q1", topic: "t", expectedFocus: "f" },
+        { id: "b", question: "Q2", topic: "t", expectedFocus: "f" },
+        { id: "c", question: "Q3", topic: "t", expectedFocus: "f" },
+      ],
+    });
+    const full = JSON.stringify({
+      questions: [
+        { id: "a", question: "Q1", topic: "t", expectedFocus: "f" },
+        { id: "b", question: "Q2", topic: "t", expectedFocus: "f" },
+        { id: "c", question: "Q3", topic: "t", expectedFocus: "f" },
+        { id: "d", question: "Q4", topic: "t", expectedFocus: "f" },
+        { id: "e", question: "Q5", topic: "t", expectedFocus: "f" },
+      ],
+    });
+    mockedCallAi.mockResolvedValueOnce(short).mockResolvedValueOnce(full);
+
+    const result = await generateInterviewQuestions({
+      interviewType: "technical",
+      profileSkills: ["react"],
+      count: 5,
+    });
+
+    // Three questions for a five-question request used to become a
+    // three-question interview with no warning.
+    expect(result.questions).toHaveLength(5);
+    expect(mockedCallAi).toHaveBeenCalledTimes(2);
+  });
+
+  it("generateInterviewQuestions: fails loudly when the count is never met", async () => {
+    const short = JSON.stringify({
+      questions: [{ id: "a", question: "Q1", topic: "t", expectedFocus: "f" }],
+    });
+    mockedCallAi.mockResolvedValue(short);
+
+    await expect(
+      generateInterviewQuestions({
+        interviewType: "technical",
+        profileSkills: ["react"],
+        count: 4,
+      })
+    ).rejects.toThrow(/generateInterviewQuestions: retry failed/);
+  });
+
+  it("generateInterviewQuestions: an over-long response is trimmed to the requested count", async () => {
+    mockedCallAi.mockResolvedValueOnce(
+      JSON.stringify({
+        questions: [
+          { id: "a", question: "Q1", topic: "t", expectedFocus: "f" },
+          { id: "b", question: "Q2", topic: "t", expectedFocus: "f" },
+          { id: "c", question: "Q3", topic: "t", expectedFocus: "f" },
+        ],
+      })
+    );
+
+    const result = await generateInterviewQuestions({
+      interviewType: "technical",
+      profileSkills: ["react"],
+      count: 2,
+    });
+
+    expect(result.questions.map((q) => q.id)).toEqual(["a", "b"]);
+  });
+
+  it("passes the per-operation generation config through to the client", async () => {
+    mockedCallAi.mockResolvedValueOnce(
+      JSON.stringify({
+        roleTitle: "Dev",
+        requiredSkills: [],
+        advantageSkills: [],
+        seniorityLevel: "junior",
+        summary: "s",
+      })
+    );
+
+    await analyzeJob("Some role");
+
+    expect(mockedCallAi).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ jsonMode: true, temperature: 0.2 })
+    );
+  });
+
   it("calculateMatch: AI semantic score is clamped and flows into buildDeterministicMatch", async () => {
     mockedCallAi.mockResolvedValueOnce(
       JSON.stringify({ aiSemanticScore: 150, explanation: "high fit" })

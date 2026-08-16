@@ -47,7 +47,12 @@ import type {
   SuggestedSkill,
 } from "./parsed-resume.types";
 
-import { callAi, getActiveModelName, isApiKeyConfigured } from "./ai.client";
+import {
+  callAi,
+  getActiveModelName,
+  isApiKeyConfigured,
+  type AiCallOptions,
+} from "./ai.client";
 import {
   logAiStart,
   logAiSuccess,
@@ -205,6 +210,46 @@ function ensureQuestionIds(
   });
 }
 
+/**
+ * Per-operation generation settings.
+ *
+ * Extraction and matching want near-deterministic output; question generation
+ * wants variety so two sessions for the same job are not the same interview;
+ * evaluation and summarisation sit in between. Every operation returns JSON, so
+ * all of them ask the provider for JSON directly.
+ *
+ * `maxOutputTokens` is a truncation guard, not a savings target: it is sized
+ * above the largest legitimate response each operation produces. parseResume is
+ * the largest by a wide margin because of its suggested-skills block.
+ */
+export const AI_OPERATION_CONFIG: Record<string, AiCallOptions> = {
+  analyzeProfile: { temperature: 0.2, maxOutputTokens: 2048, jsonMode: true },
+  analyzeJob: { temperature: 0.2, maxOutputTokens: 4096, jsonMode: true },
+  calculateMatch: { temperature: 0.2, maxOutputTokens: 2048, jsonMode: true },
+  generateInterviewQuestions: {
+    temperature: 0.8,
+    maxOutputTokens: 2048,
+    jsonMode: true,
+  },
+  evaluateAnswer: { temperature: 0.3, maxOutputTokens: 1536, jsonMode: true },
+  evaluateHomeAssignment: {
+    temperature: 0.3,
+    maxOutputTokens: 1536,
+    jsonMode: true,
+  },
+  analyzeGithubRepo: { temperature: 0.2, maxOutputTokens: 2048, jsonMode: true },
+  summarizeInterviewAttempt: {
+    temperature: 0.4,
+    maxOutputTokens: 1536,
+    jsonMode: true,
+  },
+  parseResume: { temperature: 0.1, maxOutputTokens: 8192, jsonMode: true },
+};
+
+function configFor(functionName: string): AiCallOptions {
+  return AI_OPERATION_CONFIG[functionName] ?? { jsonMode: true };
+}
+
 const RETRY_SUFFIX =
   "\n\nYour previous response was invalid. Return ONLY valid JSON matching the exact schema. No markdown. No explanations. No extra fields.";
 
@@ -225,13 +270,14 @@ async function withOneRetry<T>(
   parseAndValidate: (raw: string) => T,
   onRawOutput?: (raw: string) => void
 ): Promise<T> {
-  const rawFirst = await callAi(prompt);
+  const config = configFor(functionName);
+  const rawFirst = await callAi(prompt, config);
   try {
     const out = parseAndValidate(rawFirst);
     if (onRawOutput) onRawOutput(rawFirst);
     return out;
   } catch (firstErr) {
-    const rawRetry = await callAi(prompt + RETRY_SUFFIX);
+    const rawRetry = await callAi(prompt + RETRY_SUFFIX, config);
     try {
       const out = parseAndValidate(rawRetry);
       if (onRawOutput) onRawOutput(rawRetry);
@@ -835,12 +881,31 @@ function extractMatchExtras(
   return extras;
 }
 
-function validateQuestions(raw: string): { questions: InterviewQuestion[] } {
+/**
+ * Validates a questions response, optionally enforcing the requested count.
+ *
+ * Without `expectedCount` a model that returns three questions for a
+ * five-question request silently produced a three-question interview. Falling
+ * short now fails validation, which triggers the stricter retry prompt.
+ */
+function validateQuestions(
+  raw: string,
+  expectedCount?: number
+): { questions: InterviewQuestion[] } {
   const fn = "generateInterviewQuestions";
   const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
   const questionsRaw = parsed.questions;
   if (!Array.isArray(questionsRaw)) {
     throw new Error(`${fn}: field 'questions' is not an array`);
+  }
+  if (
+    typeof expectedCount === "number" &&
+    expectedCount > 0 &&
+    questionsRaw.length < expectedCount
+  ) {
+    throw new Error(
+      `${fn}: expected ${expectedCount} questions but received ${questionsRaw.length}`
+    );
   }
 
   const validated: InterviewQuestion[] = questionsRaw.map((q, i) => {
@@ -865,7 +930,12 @@ function validateQuestions(raw: string): { questions: InterviewQuestion[] } {
     };
   });
 
-  return { questions: ensureQuestionIds(validated) };
+  const bounded =
+    typeof expectedCount === "number" && expectedCount > 0
+      ? validated.slice(0, expectedCount)
+      : validated;
+
+  return { questions: ensureQuestionIds(bounded) };
 }
 
 function validateAnswerEvaluation(raw: string): AnswerEvaluation {
@@ -1199,7 +1269,7 @@ export async function generateInterviewQuestions(
     return withOneRetry<{ questions: InterviewQuestion[] }>(
       "generateInterviewQuestions",
       prompt,
-      validateQuestions,
+      (raw) => validateQuestions(raw, input.count),
       ctx.recordOutput
     );
   });

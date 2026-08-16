@@ -43,6 +43,8 @@ services:
       GOOGLE_GENERATIVE_AI_KEY: ${GOOGLE_GENERATIVE_AI_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-lite-latest}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-30000}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
       USE_MOCK_AI: ${USE_MOCK_AI:-false}
       UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
     volumes:
