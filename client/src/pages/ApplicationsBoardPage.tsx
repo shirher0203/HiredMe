@@ -11,6 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { StagedProgress } from "../components/StagedProgress";
 import { getAuthSession } from "../services/auth";
 import {
   listPracticeSessions,
@@ -1063,7 +1064,10 @@ function JobReviewModal({
 
         {loading ? (
           <div className="py-10">
-            <p className="text-sm font-medium text-slate-700">Analyzing application...</p>
+            <StagedProgress
+              active={loading}
+              className="text-sm font-medium text-slate-700"
+            />
             <div className="mt-4 rounded-full bg-slate-200 p-1">
               <div className="h-2 w-full animate-pulse rounded-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-sky-300" />
             </div>
