@@ -170,6 +170,7 @@ export async function createPracticeSession(
       userId: asObjectId(userId),
       jobId: jobId ? asObjectId(jobId) : undefined,
       interviewType,
+      language,
       status: "active",
       questions,
       turns: [],
@@ -248,6 +249,9 @@ export async function regeneratePracticeQuestions(
       profileSkills,
       jobRequiredSkills,
       count: unansweredCount,
+      // Reuse the session's own language. Sessions created before it was stored
+      // have none, and English matches what they were generated with.
+      language: session.language === "he" ? "he" : "en",
       excludeQuestions,
       cvContext,
     });

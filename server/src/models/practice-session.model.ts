@@ -54,6 +54,10 @@ const practiceSessionSchema = new Schema(
     userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
     jobId: { type: Types.ObjectId, ref: "Job" },
     interviewType: { type: String, enum: ["hr", "technical"], required: true },
+    // The language the questions were generated in. Persisted so regenerating
+    // mid-session cannot silently switch languages. Sessions created before this
+    // field existed read as undefined and are treated as English by callers.
+    language: { type: String, enum: ["he", "en"], default: "en" },
     status: { type: String, enum: ["active", "completed"], default: "active", index: true },
     questions: { type: [questionSchema], default: [] },
     turns: { type: [turnSchema], default: [] },
