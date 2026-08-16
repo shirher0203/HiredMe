@@ -111,3 +111,132 @@ export const MICROSOFT_FULL_NON_SKILL_PHRASES = [
   "mentor junior researchers",
   "equal opportunity employer",
 ] as const;
+
+/**
+ * Raw `analyzeJob` output recorded against real Gemini for the full posting,
+ * kept verbatim so the recall assertions run offline. Compare it with the
+ * four-skill result the partial paragraph produced: the difference is what a
+ * complete description buys, and it is an input difference, not a model defect.
+ */
+export const MICROSOFT_FULL_RECORDED_RAW_RESPONSE = `{
+  "roleTitle": "Senior Security Researcher — Identity Threat Detection and Response",
+  "requiredSkills": [
+    "security-research",
+    "threat-hunting",
+    "detection-engineering",
+    "reverse-engineering",
+    "security-telemetry-analysis",
+    "windows-internals",
+    "identity-management",
+    "python",
+    "c-sharp",
+    "c-plus-plus",
+    "incident-response"
+  ],
+  "advantageSkills": [
+    "cloud-forensics",
+    "large-language-models",
+    "graph-query-languages"
+  ],
+  "toolsMentioned": [
+    "kerberos",
+    "ntlm",
+    "ldap",
+    "oauth2",
+    "saml",
+    "kql",
+    "sql",
+    "cypher",
+    "python",
+    "c#",
+    "c++",
+    "github-copilot",
+    "security-copilot",
+    "chatgpt",
+    "claude",
+    "mitre-att&ck"
+  ],
+  "impliedSkills": [
+    "authentication-protocols",
+    "threat-analysis",
+    "windows-forensics"
+  ],
+  "nonSkillRequirements": [
+    "5+ years of experience in cyber security, security research, threat detection or incident response",
+    "BSc in Computer Science, Software Engineering or equivalent practical experience",
+    "Excellent written and verbal communication skills in English",
+    "Proven team player who thrives in a highly collaborative research environment",
+    "Mentor junior researchers and represent the team's findings to senior stakeholders"
+  ],
+  "skillRelations": {
+    "security-research": [
+      "threat-hunting",
+      "vulnerability-research",
+      "security-investigation",
+      "malware-analysis"
+    ],
+    "threat-hunting": [
+      "security-research",
+      "threat-detection",
+      "security-investigation"
+    ],
+    "detection-engineering": [
+      "threat-detection",
+      "rule-authoring",
+      "security-monitoring"
+    ],
+    "reverse-engineering": [
+      "malware-analysis",
+      "binary-analysis",
+      "protocol-analysis"
+    ],
+    "security-telemetry-analysis": [
+      "log-analysis",
+      "siem",
+      "data-analysis"
+    ],
+    "windows-internals": [
+      "windows-os",
+      "operating-systems",
+      "windows-forensics"
+    ],
+    "identity-management": [
+      "active-directory",
+      "authentication",
+      "access-control"
+    ],
+    "python": [
+      "scripting",
+      "programming"
+    ],
+    "c-sharp": [
+      "dotnet",
+      "programming"
+    ],
+    "c-plus-plus": [
+      "cpp",
+      "programming"
+    ],
+    "incident-response": [
+      "forensics",
+      "threat-investigation",
+      "crisis-management"
+    ],
+    "cloud-forensics": [
+      "digital-forensics",
+      "cloud-security",
+      "incident-response"
+    ],
+    "large-language-models": [
+      "generative-ai",
+      "machine-learning",
+      "ai"
+    ],
+    "graph-query-languages": [
+      "cypher",
+      "database-queries"
+    ]
+  },
+  "seniorityLevel": "senior",
+  "summary": "Microsoft is seeking a Senior Security Researcher to join the Identity Threat Detection and Response team to uncover advanced identity-based attacks, perform threat hunting, and develop detections and research tooling. The role involves reversing authentication protocols, analyzing security telemetry, applying generative AI to workflows, and collaborating with product teams to protect enterprise customers."
+}`;

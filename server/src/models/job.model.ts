@@ -29,6 +29,9 @@ export const JOB_SOURCES = ["manual", "match"] as const;
 
 export type JobSource = (typeof JOB_SOURCES)[number];
 
+// The fields after `summary` are additive and optional: jobs analyzed before
+// they existed keep loading, read as empty, and fall back to the curated
+// relation map when matching.
 const jobAnalysisSchema = new Schema(
   {
     roleTitle: { type: String, required: true },
@@ -36,6 +39,14 @@ const jobAnalysisSchema = new Schema(
     advantageSkills: { type: [String], default: [] },
     seniorityLevel: { type: String, enum: ["junior", "mid", "senior"], required: true },
     summary: { type: String, required: true },
+    toolsMentioned: { type: [String], default: undefined },
+    impliedSkills: { type: [String], default: undefined },
+    nonSkillRequirements: { type: [String], default: undefined },
+    // Free-form map of canonical skill -> related canonical terms.
+    skillRelations: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+    },
   },
   { _id: false }
 );

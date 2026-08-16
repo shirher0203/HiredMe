@@ -74,7 +74,11 @@ import {
   buildSummarizeAttemptPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
-import { normalizeSkills } from "../matching/skills-normalizer";
+import {
+  atomizeSkills,
+  normalizeSkill,
+  normalizeSkills,
+} from "../matching/skills-normalizer";
 import {
   enrichFromResume,
   mergeProfileSkillsWithResume,
@@ -525,9 +529,12 @@ function validateSkillsBlock(
   );
   const soft = normalizeStringArrayField(raw.soft_skills, "skills.soft_skills", fn);
   return {
-    technical_skills: normalizeSkills(technical),
+    // Atomized, not just normalized: a resume listing "HTML/CSS" or
+    // "TCP/IP networking and protocols" becomes separate comparable skills.
+    // soft_skills stays as written — it is prose, not a matchable vocabulary.
+    technical_skills: atomizeSkills(technical),
     soft_skills: soft,
-    tools_and_software: normalizeSkills(tools),
+    tools_and_software: atomizeSkills(tools),
   };
 }
 
@@ -545,7 +552,7 @@ function validateProjectEntry(
   return {
     project_name: coerceNullableString(obj.project_name),
     description: coerceNullableString(obj.description),
-    technologies_used: normalizeSkills(technologies),
+    technologies_used: atomizeSkills(technologies),
     link: coerceNullableString(obj.link),
   };
 }
@@ -776,17 +783,77 @@ function validateProfileAnalysis(raw: string): ProfileAnalysis {
   };
 }
 
+const JOB_ANALYSIS_KEYS = [
+  "roleTitle",
+  "requiredSkills",
+  "advantageSkills",
+  "toolsMentioned",
+  "impliedSkills",
+  "nonSkillRequirements",
+  "skillRelations",
+  "seniorityLevel",
+  "summary",
+] as const;
+
+/**
+ * Job skills are canonicalized here, at ingestion, exactly like resume skills.
+ * They used to persist as raw title-case prose ("Identity Threat Detection and
+ * Response") and were only normalized transiently at compare time, so the two
+ * sides of a match were never stored in the same vocabulary.
+ */
+function canonicalizeJobSkills(
+  value: unknown,
+  fieldName: string,
+  fn: string
+): string[] {
+  return atomizeSkills(requireStringArray(value, fieldName, fn));
+}
+
+function validateSkillRelations(
+  value: unknown,
+  fn: string
+): Record<string, string[]> {
+  if (value === undefined || value === null) return {};
+  if (!isPlainObject(value)) {
+    throw new Error(`${fn}: field 'skillRelations' is not an object`);
+  }
+
+  const relations: Record<string, string[]> = {};
+  for (const [rawSkill, rawTerms] of Object.entries(value)) {
+    const skill = normalizeSkill(rawSkill);
+    if (skill === "") continue;
+    const terms = requireStringArray(
+      rawTerms,
+      `skillRelations['${rawSkill}']`,
+      fn
+    );
+    const canonical = normalizeSkills(terms).filter((term) => term !== skill);
+    if (canonical.length === 0) continue;
+    relations[skill] = canonical;
+  }
+  return relations;
+}
+
 function validateJobAnalysis(raw: string): JobAnalysis {
   const fn = "analyzeJob";
   const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
-  return {
+  if (!isPlainObject(parsed)) {
+    throw new Error(`${fn}: top-level value is not an object`);
+  }
+  for (const key of Object.keys(parsed)) {
+    if (!(JOB_ANALYSIS_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`${fn}: unexpected top-level key '${key}'`);
+    }
+  }
+
+  const result: JobAnalysis = {
     roleTitle: requireString(parsed.roleTitle, "roleTitle", fn),
-    requiredSkills: requireStringArray(
+    requiredSkills: canonicalizeJobSkills(
       parsed.requiredSkills,
       "requiredSkills",
       fn
     ),
-    advantageSkills: requireStringArray(
+    advantageSkills: canonicalizeJobSkills(
       parsed.advantageSkills,
       "advantageSkills",
       fn
@@ -799,6 +866,34 @@ function validateJobAnalysis(raw: string): JobAnalysis {
     ),
     summary: requireString(parsed.summary, "summary", fn),
   };
+
+  if (parsed.toolsMentioned !== undefined) {
+    result.toolsMentioned = canonicalizeJobSkills(
+      parsed.toolsMentioned,
+      "toolsMentioned",
+      fn
+    );
+  }
+  if (parsed.impliedSkills !== undefined) {
+    result.impliedSkills = canonicalizeJobSkills(
+      parsed.impliedSkills,
+      "impliedSkills",
+      fn
+    );
+  }
+  if (parsed.nonSkillRequirements !== undefined) {
+    // Kept as written: these are shown to the candidate, not compared.
+    result.nonSkillRequirements = normalizeStringArrayField(
+      parsed.nonSkillRequirements,
+      "nonSkillRequirements",
+      fn
+    );
+  }
+  if (parsed.skillRelations !== undefined) {
+    result.skillRelations = validateSkillRelations(parsed.skillRelations, fn);
+  }
+
+  return result;
 }
 
 function validateSemanticMatch(raw: string): SemanticMatchAiResponse {

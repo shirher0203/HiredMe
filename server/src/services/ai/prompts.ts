@@ -34,14 +34,73 @@ export interface AnalyzeJobPromptInput {
   readonly companyName?: string;
 }
 
+/**
+ * Canonical form rules, shared by the job and resume prompts so both sides of a
+ * match speak the same vocabulary. Asymmetric canonicalization was a large part
+ * of why obviously related skills scored zero against each other.
+ */
+export const CANONICAL_SKILL_RULES = [
+  "Skill entries must be canonical:",
+  "- lowercase",
+  "- one concept per entry, never two joined by a slash, comma, ampersand or the word and",
+  "- multiword skills hyphenated (e.g. \"threat-detection\", \"windows-internals\", \"active-directory\")",
+  "- no version numbers (\"react\", not \"react 18\")",
+  "- no marketing or product suffixes (\"aws\", not \"aws cloud environments\")",
+  "- no descriptive filler (\"cyber-attack\", not \"cyber attack knowledge\")",
+  "- split compounds into separate entries (\"React or Vue\" becomes two entries, \"AWS/GCP\" becomes two entries)",
+].join("\n");
+
 export function buildAnalyzeJobPrompt(input: AnalyzeJobPromptInput): string {
   const schema = `{
   "roleTitle": string,
   "requiredSkills": string[],
   "advantageSkills": string[],
+  "toolsMentioned": string[],
+  "impliedSkills": string[],
+  "nonSkillRequirements": string[],
+  "skillRelations": { [skill: string]: string[] },
   "seniorityLevel": "junior" | "mid" | "senior",
   "summary": string
 }`;
+
+  const classification = [
+    "Classify everything the posting asks for into exactly one of these eight buckets.",
+    "",
+    "These four become skills:",
+    "1. requiredSkills — technical skills the posting states as required. Hard requirements only.",
+    "2. advantageSkills — skills presented as preferred, nice to have, a plus, or bonus.",
+    "3. toolsMentioned — every concrete thing the posting names by name: tools, products, platforms, services, protocols, standards, frameworks and query languages. If the posting writes the name, it belongs here, even when it also belongs in another bucket.",
+    "4. impliedSkills — technical capabilities clearly implied by the responsibilities but never named as a requirement.",
+    "",
+    "These four are NOT skills and must never appear in any of the four arrays above:",
+    "5. generic non-skill requirements (citizenship, security clearance, on-site presence, travel, shift work)",
+    "6. experience and seniority requirements (\"5+ years of experience\", \"senior level\")",
+    "7. education requirements (\"BSc in Computer Science\", \"relevant degree\")",
+    "8. soft and leadership requirements (\"team player\", \"excellent communication skills\", \"mentor junior engineers\")",
+    "",
+    "Buckets 5 to 8 go into nonSkillRequirements as short readable phrases, quoted close to the posting's wording. They are displayed to the candidate and never scored.",
+  ].join("\n");
+
+  const rules = [
+    "Extraction rules:",
+    "Extract only what the posting actually contains. Never add a technology the text does not mention — an absent technology is not a missing skill, it is simply not required.",
+    "A short or vague posting must produce a short result. Do not pad it.",
+    "requiredSkills is a focused list of the genuine hard requirements, at most 15 entries. Recall belongs in toolsMentioned and impliedSkills, not here.",
+    "Never place company boilerplate, benefits, perks, or equal-opportunity statements anywhere in the response.",
+    "A skill may appear in more than one array only when the posting genuinely repeats it in both senses; prefer the strongest bucket.",
+    "",
+    CANONICAL_SKILL_RULES,
+    "",
+    "skillRelations rules:",
+    "For every entry in requiredSkills and advantageSkills, add one key with that exact canonical skill name.",
+    "The value is a list of canonical near-synonyms, parent categories and child concepts that a candidate could plausibly hold instead, in the same canonical form.",
+    'Example: "cybersecurity": ["information-security", "threat-detection", "cyber-attack", "security-investigation", "soc"].',
+    "Assert a relation only when experience in the related term is genuinely transferable to the required skill. Do not list a term merely because it belongs to the same broad category — two unrelated programming languages are not related.",
+    "Keep each list to at most 8 entries. Return {} only when there are no skills at all.",
+    "",
+    "seniorityLevel reflects what the posting asks for, independent of the skill lists.",
+    "summary is two or three sentences describing the role in plain language.",
+  ].join("\n");
 
   const hints: string[] = [];
   if (input.roleTitle) {
@@ -54,10 +113,14 @@ export function buildAnalyzeJobPrompt(input: AnalyzeJobPromptInput): string {
   return [
     SYSTEM_HEADER,
     "",
-    "Task: analyze the job description below and extract a structured summary.",
+    "Task: analyze the job description below and extract a structured, canonical representation of what the role requires.",
     "",
     "Respond with a single JSON object that matches exactly this schema:",
     schema,
+    "",
+    classification,
+    "",
+    rules,
     "",
     ...hints,
     "",
@@ -342,11 +405,16 @@ export function buildParseResumePrompt(resumeText: string): string {
     "parsed_metadata.years_of_experience_estimate must be a non-negative number.",
     'parsed_metadata.language_detected must be one of "en", "he", "mixed", "other", or null.',
     "",
+    "skills.technical_skills, skills.tools_and_software and projects[].technologies_used rules:",
+    CANONICAL_SKILL_RULES,
+    'A resume line like "TCP/IP networking and protocols" becomes two entries, "tcp-ip" and "networking". "HTML/CSS" becomes "html" and "css". "AWS cloud environments" becomes "aws".',
+    "skills.soft_skills is prose and is NOT canonicalized — leave those entries as written.",
+    "",
     "suggested_skills rules:",
     "This is a RECOMMENDATION list, not a verified skills list. Prioritize recall over precision.",
     "The user reviews and approves each entry manually on a follow-up screen, so over-suggesting is the desired failure mode. Missing relevant skills is the failure mode to avoid.",
-    "If the resume strongly indicates a software role, return a long ranked list of potentially relevant skills even when individual confidence is only moderate.",
-    "Target: 50+ entries whenever the resume has enough signal. For typical software-engineering resumes, prefer 75-100 entries.",
+    "If the resume strongly indicates a software role, return a ranked list of potentially relevant skills even when individual confidence is only moderate.",
+    "Target: 25-40 entries whenever the resume has enough signal. These are review suggestions, so a focused ranked list is more useful than an exhaustive one.",
     "Each entry is a skill the candidate likely knows but did NOT list explicitly anywhere in skills.technical_skills, skills.tools_and_software, or projects[].technologies_used.",
     "Do NOT repeat any skill that already appears in those three places (case-insensitive).",
     "Cover adjacent technologies, tools, frameworks, methodologies, languages, cloud / DevOps, testing, observability, and concepts that are commonly paired with what the candidate already knows. Include lower-confidence adjacent skills near the bottom of the list rather than omitting them.",

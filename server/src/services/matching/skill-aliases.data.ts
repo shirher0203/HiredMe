@@ -348,6 +348,8 @@ export const SECURITY_ALIASES: Readonly<Record<string, string>> = {
   "endpoint detection and response": "endpoint-detection-and-response",
   "mitre attack": "mitre-attack",
   "mitre att&ck": "mitre-attack",
+  "mitre-att&ck": "mitre-attack",
+  "att&ck": "mitre-attack",
   "penetration testing": "penetration-testing",
   pentest: "penetration-testing",
   pentesting: "penetration-testing",

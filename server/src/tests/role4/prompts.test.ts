@@ -1,5 +1,7 @@
 import {
+  CANONICAL_SKILL_RULES,
   buildAnalyzeJobPrompt,
+  buildParseResumePrompt,
   buildSemanticMatchPrompt,
   buildGenerateQuestionsPrompt,
   buildEvaluateAnswerPrompt,
@@ -32,6 +34,10 @@ describe("buildAnalyzeJobPrompt", () => {
       "roleTitle",
       "requiredSkills",
       "advantageSkills",
+      "toolsMentioned",
+      "impliedSkills",
+      "nonSkillRequirements",
+      "skillRelations",
       "seniorityLevel",
       "summary",
     ]) {
@@ -49,6 +55,82 @@ describe("buildAnalyzeJobPrompt", () => {
     );
     expect(prompt).toContain("Junior Full-Stack Developer");
     expect(prompt).toContain("Acme Corp");
+  });
+
+  it("states the eight-bucket classification", () => {
+    for (const bucket of [
+      "requiredSkills — technical skills the posting states as required",
+      "advantageSkills — skills presented as preferred",
+      "toolsMentioned — every concrete thing the posting names by name",
+      "impliedSkills — technical capabilities clearly implied",
+      "generic non-skill requirements",
+      "experience and seniority requirements",
+      "education requirements",
+      "soft and leadership requirements",
+    ]) {
+      expect(prompt).toContain(bucket);
+    }
+  });
+
+  it("excludes non-skills from the skill arrays", () => {
+    expect(prompt).toContain(
+      "must never appear in any of the four arrays above"
+    );
+    expect(prompt).toContain("5+ years of experience");
+    expect(prompt).toContain("BSc in Computer Science");
+    expect(prompt).toContain("team player");
+    expect(prompt).toContain(
+      "Never place company boilerplate, benefits, perks, or equal-opportunity statements"
+    );
+  });
+
+  it("states the canonical form rules", () => {
+    expect(prompt).toContain(CANONICAL_SKILL_RULES);
+    expect(prompt).toContain("one concept per entry");
+    expect(prompt).toContain("multiword skills hyphenated");
+    expect(prompt).toContain("no version numbers");
+  });
+
+  it("bounds recall so it cannot become a dump", () => {
+    expect(prompt).toContain("at most 15 entries");
+    expect(prompt).toContain("A short or vague posting must produce a short result");
+  });
+
+  it("forbids inventing technologies the posting does not contain", () => {
+    expect(prompt).toContain(
+      "Never add a technology the text does not mention"
+    );
+  });
+
+  it("specifies how relations must be asserted", () => {
+    expect(prompt).toContain("skillRelations rules:");
+    expect(prompt).toContain("genuinely transferable");
+    expect(prompt).toContain(
+      "Do not list a term merely because it belongs to the same broad category"
+    );
+  });
+});
+
+describe("buildParseResumePrompt", () => {
+  const prompt = buildParseResumePrompt("Some resume text about React and Node.");
+
+  it("applies the same canonical form rules as the job prompt", () => {
+    expect(prompt).toContain(CANONICAL_SKILL_RULES);
+  });
+
+  it("shows how to split the blobs the parser used to emit", () => {
+    expect(prompt).toContain('"tcp-ip"');
+    expect(prompt).toContain('"HTML/CSS" becomes "html" and "css"');
+    expect(prompt).toContain('"AWS cloud environments" becomes "aws"');
+  });
+
+  it("leaves soft skills out of canonicalization", () => {
+    expect(prompt).toContain("skills.soft_skills is prose and is NOT canonicalized");
+  });
+
+  it("targets a focused suggested-skills list instead of 75-100 entries", () => {
+    expect(prompt).toContain("Target: 25-40 entries");
+    expect(prompt).not.toContain("75-100");
   });
 });
 

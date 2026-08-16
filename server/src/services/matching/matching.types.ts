@@ -33,12 +33,29 @@ export interface JobAnalysisInput {
  * Produced by `analyzeJob` (AI service); consumed by `calculateMatch`
  * and persisted by the Backend on the job document.
  */
+/**
+ * Structured result of job-description analysis.
+ *
+ * The fields after `summary` were added later and are all optional, so job
+ * documents written before they existed still load and still match — they fall
+ * back to the curated relation map instead of the job's own assertions.
+ *
+ * `requiredSkills` and `advantageSkills` are persisted in canonical form.
+ * `toolsMentioned` and `impliedSkills` exist so recall does not have to be
+ * bought by polluting the scored list. `nonSkillRequirements` holds years,
+ * degrees and soft asks: displayed, never scored.
+ */
 export interface JobAnalysis {
   roleTitle: string;
   requiredSkills: string[];
   advantageSkills: string[];
   seniorityLevel: "junior" | "mid" | "senior";
   summary: string;
+  toolsMentioned?: string[];
+  impliedSkills?: string[];
+  nonSkillRequirements?: string[];
+  /** Canonical skill -> canonical terms the model asserts are transferable. */
+  skillRelations?: Record<string, string[]>;
 }
 
 /**

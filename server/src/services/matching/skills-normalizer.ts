@@ -107,6 +107,8 @@ export function hasSkill(
  * Separators that reliably join two independent skills.
  * Kept short on purpose — every addition is a false-split risk.
  */
+// An ampersand only separates when it is spaced: "docker & kubernetes" is two
+// skills, "mitre-att&ck" and "r&d" are one.
 const COMPOUND_SEPARATORS = /\s+and\s+|\s+&\s+|\s*,\s*|\s*\/\s*|\s*\|\s*/;
 
 /**
