@@ -64,6 +64,15 @@ const matchAnalysisSchema = new Schema(
     missingRequired: { type: [String], default: [] },
     matchedAdvantage: { type: [String], default: [] },
     explanation: { type: String, required: true },
+    // Per-requirement explanation of the deterministic score. Stored as Mixed
+    // rather than a subdocument array: it is a display payload built entirely
+    // by deterministic code from a validated MatchAnalysis, never user input,
+    // and a subdocument array would force every assignment through a cast.
+    // Shape is guaranteed by the matching service and its explainability tests.
+    matchDetails: { type: [Schema.Types.Mixed], default: undefined },
+    relatedShare: { type: Number },
+    scorableRequiredCount: { type: Number },
+    advantageBonus: { type: Number },
     educationFit: { type: String },
     experienceFit: { type: String },
     projectFit: { type: String },

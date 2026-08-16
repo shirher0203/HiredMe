@@ -82,13 +82,12 @@ describe("ai.service — mock mode (USE_MOCK_AI=true)", () => {
     expect(result.matchedRequired).toEqual(["react", "node"]);
     expect(result.missingRequired).toEqual(["mongodb"]);
     expect(result.matchedAdvantage).toEqual(["typescript"]);
-    expect(result.algorithmicScore).toBe(67);
+    // Was 67 (2 of 3 required skills). The advantage bonus now contributes:
+    // one of two advantage skills matched adds 5, giving round(66.67 + 5) = 72.
+    expect(result.algorithmicScore).toBe(72);
+    expect(result.advantageBonus).toBe(5);
     expect(result.aiSemanticScore).toBe(72);
-    // round(0.7*67 + 0.3*72) = round(46.9 + 21.6) = round(68.5) = 69
-    // Spec requirement: round(0.7*67 + 0.3*72) = 68
-    // JS Math.round(68.5) rounds to 69 (half-to-even would be 68). Verify
-    // the formula output matches Math.round semantics.
-    expect(result.finalScore).toBe(Math.round(0.7 * 67 + 0.3 * 72));
+    expect(result.finalScore).toBe(Math.round(0.7 * 72 + 0.3 * 72));
     expect(mockedCallAi).not.toHaveBeenCalled();
   });
 

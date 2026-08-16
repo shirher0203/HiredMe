@@ -1255,6 +1255,9 @@ export async function calculateMatch(
     const rawProfileSkills = profile?.skills ?? [];
     const requiredSkills = jobAnalysis?.requiredSkills ?? [];
     const advantageSkills = jobAnalysis?.advantageSkills ?? [];
+    // Absent on jobs analyzed before relations were extracted; graded matching
+    // then falls back to the curated relation map.
+    const matchOptions = { skillRelations: jobAnalysis?.skillRelations ?? {} };
 
     if (!resume) {
       const profileSkills = rawProfileSkills;
@@ -1265,7 +1268,9 @@ export async function calculateMatch(
           requiredSkills,
           advantageSkills,
           mockSemanticMatch.aiSemanticScore,
-          mockSemanticMatch.explanation
+          mockSemanticMatch.explanation,
+          undefined,
+          matchOptions
         );
       }
 
@@ -1288,7 +1293,9 @@ export async function calculateMatch(
         requiredSkills,
         advantageSkills,
         semantic.aiSemanticScore,
-        semantic.explanation
+        semantic.explanation,
+        undefined,
+        matchOptions
       );
     }
 
@@ -1302,7 +1309,8 @@ export async function calculateMatch(
         advantageSkills,
         mockResumeAwareSemanticMatch.aiSemanticScore,
         mockResumeAwareSemanticMatch.explanation,
-        extractMatchExtras(mockResumeAwareSemanticMatch)
+        extractMatchExtras(mockResumeAwareSemanticMatch),
+        matchOptions
       );
     }
 
@@ -1331,7 +1339,8 @@ export async function calculateMatch(
       advantageSkills,
       semantic.aiSemanticScore,
       semantic.explanation,
-      extractMatchExtras(semantic)
+      extractMatchExtras(semantic),
+      matchOptions
     );
   });
 }

@@ -83,6 +83,20 @@ export interface SkillMatchResult {
 }
 
 /**
+ * One row of the match explanation: which requirement, what satisfied it, how
+ * strongly, and why. Every point of the deterministic score is traceable to one
+ * of these, which is what makes the score defensible on screen.
+ */
+export interface SkillMatchDetail {
+  required: string;
+  matchedBy: string | null;
+  tier: SkillMatchTier;
+  credit: number;
+  reason: string;
+  family?: string;
+}
+
+/**
  * Final per-(user, job) match result.
  * Produced by `buildDeterministicMatch` / `calculateMatch`.
  * `finalScore` and `algorithmicScore` are computed in deterministic code;
@@ -95,12 +109,20 @@ export interface SkillMatchResult {
  */
 export interface MatchAnalysis {
   finalScore: number;
+  /** Deterministic score: graded skill coverage plus the advantage bonus. */
   algorithmicScore: number;
   aiSemanticScore: number;
   matchedRequired: string[];
   missingRequired: string[];
   matchedAdvantage: string[];
   explanation: string;
+  /** Per-requirement breakdown. Absent on matches computed before it existed. */
+  matchDetails?: SkillMatchDetail[];
+  /** 0..1 — how much of the earned credit came from related rather than exact matches. */
+  relatedShare?: number;
+  /** Requirements that were actually scoreable, i.e. excluding years and degrees. */
+  scorableRequiredCount?: number;
+  advantageBonus?: number;
   educationFit?: string;
   experienceFit?: string;
   projectFit?: string;
