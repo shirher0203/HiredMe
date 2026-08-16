@@ -764,6 +764,7 @@ function JobReviewModal({
   error,
   onClose,
   onGoToProfile,
+  onReanalyze,
 }: {
   job: Job;
   jobAnalysis: JobAnalysis | null;
@@ -773,6 +774,7 @@ function JobReviewModal({
   error: string | null;
   onClose: () => void;
   onGoToProfile: () => void;
+  onReanalyze: () => void;
 }) {
   const profileError = error?.toLowerCase().includes("profile") ?? false;
 
@@ -799,13 +801,24 @@ function JobReviewModal({
               {job.company ? ` at ${job.company}` : ""}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="self-start rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Close
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start">
+            <button
+              type="button"
+              onClick={onReanalyze}
+              disabled={loading}
+              title="Discard the saved analysis and run it again"
+              className="rounded-xl border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? "Analyzing..." : "Re-analyze"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -1256,7 +1269,15 @@ export function ApplicationsBoardPage() {
     }
   }
 
-  async function handleReview(job: Job) {
+  /**
+   * Runs the match for a job and shows the result.
+   *
+   * `force` bypasses the server-side analysis cache. Without it a job whose
+   * description has not changed always returns the analysis it was given the
+   * first time, so an application analyzed before a scoring change can never
+   * pick the new one up.
+   */
+  async function handleReview(job: Job, options: { force?: boolean } = {}) {
     setReviewJob(job);
     setReviewJobAnalysis(job.jobAnalysis);
     setReviewMatchAnalysis(job.matchAnalysis);
@@ -1264,7 +1285,7 @@ export function ApplicationsBoardPage() {
     setReviewError(null);
     setReviewLoading(true);
     try {
-      const result = await analyzeSavedJob(job.id);
+      const result = await analyzeSavedJob(job.id, { force: options.force ?? false });
       setReviewJob(result.job);
       setReviewJobAnalysis(result.jobAnalysis);
       setReviewMatchAnalysis(result.matchAnalysis);
@@ -1427,6 +1448,7 @@ export function ApplicationsBoardPage() {
             closeReviewModal();
             navigate("/profile");
           }}
+          onReanalyze={() => void handleReview(reviewJob, { force: true })}
         />
       ) : null}
     </div>
