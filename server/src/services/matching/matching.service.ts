@@ -28,8 +28,44 @@ import type {
  * change with one place to look, and the weighting test reads these values
  * rather than hard-coding them.
  *
- * Held at the original 0.7/0.3 while graded coverage landed, so that the only
- * variable in the regression fixtures was match quality.
+ * KEPT AT 0.7/0.3, on the evidence below rather than by default.
+ *
+ * The graded matcher landed first with the weighting untouched, so the only
+ * variable was match quality. These are the six regression fixtures measured
+ * against the new matcher, with what each would score under a heavier AI
+ * weight (deterministic score, then final score at each ratio):
+ *
+ *   fixture                            det   ai   0.7/0.3   0.6/0.4   0.5/0.5
+ *   A  Microsoft partial, related only   40   65        48        50        53
+ *   B  Microsoft full, mixed credit      54   65        57        58        60
+ *   C  exact-match security expert      100   65        90        86        83
+ *   D  unrelated frontend vs embedded     0   65        20        26        33
+ *   E  related but not exact             38   65        46        49        52
+ *   F  junior full-stack, pre-existing   72   72        72        72        72
+ *
+ * Three readings, all pointing the same way:
+ *
+ * 1. The original argument for shifting weight to the AI was that a zero
+ *    deterministic score capped the final score at 30 and the AI was the only
+ *    component that could see related expertise. Graded coverage removes that
+ *    premise: fixture A went from 0/20 to 40/48 without touching the weights,
+ *    which is already the defensible band. There is nothing left for a heavier
+ *    AI weight to rescue.
+ * 2. Shifting weight would flatter genuinely bad matches. Fixture D — a
+ *    frontend profile against an embedded role, zero overlap and every row
+ *    unmatched — rises from 20 to 26 or 33. That is the wrong direction: the
+ *    zero-overlap ceiling is a feature, and it equals the AI weight by
+ *    construction.
+ * 3. It would also compress the signal that matters most. The margin between
+ *    the exact-match expert and the related-only candidate narrows from 42 to
+ *    36 to 30 as the AI weight grows, because both converge on the same AI
+ *    score. Holding the deterministic weight high is what keeps "actually has
+ *    the skills" clearly ahead of "has adjacent skills".
+ *
+ * The AI's qualitative output is not discarded by this: educationFit,
+ * experienceFit, projectFit, resumeInsights and matchingEvidence are now
+ * persisted and shown, so seniority and evidence reasoning reaches the user
+ * directly instead of only through a weighted number.
  */
 export const MATCH_WEIGHTS = { deterministic: 0.7, ai: 0.3 } as const;
 

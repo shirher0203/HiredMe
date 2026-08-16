@@ -388,6 +388,33 @@ describe("weighting", () => {
   it("sums to one", () => {
     expect(MATCH_WEIGHTS.deterministic + MATCH_WEIGHTS.ai).toBeCloseTo(1);
   });
+
+  it("keeps the deterministic component dominant", () => {
+    // The recorded rationale on MATCH_WEIGHTS depends on this: a heavier AI
+    // weight lifts genuinely unrelated candidates and compresses the gap
+    // between an exact match and a related-only one.
+    expect(MATCH_WEIGHTS.deterministic).toBeGreaterThan(MATCH_WEIGHTS.ai);
+  });
+
+  it("ties the zero-overlap ceiling to the AI weight", () => {
+    const unrelated = match(FRONTEND_CANDIDATE_SKILLS, ["c", "rtos"], [], {});
+
+    expect(unrelated.algorithmicScore).toBe(0);
+    expect(calculateFinalMatchScore(0, 100)).toBe(Math.round(MATCH_WEIGHTS.ai * 100));
+  });
+
+  it("holds the measured separation between an exact and a related-only match", () => {
+    const exact = match(SECURITY_EXPERT_SKILLS, PARTIAL_ANALYSIS.requiredSkills, PARTIAL_ANALYSIS.advantageSkills);
+    const relatedOnly = match(
+      SECURITY_CANDIDATE_SKILLS,
+      PARTIAL_ANALYSIS.requiredSkills,
+      PARTIAL_ANALYSIS.advantageSkills
+    );
+
+    // 42 points at 0.7/0.3, per the recorded table. Asserted as a floor so a
+    // future retune cannot quietly erode the distinction.
+    expect(exact.finalScore - relatedOnly.finalScore).toBeGreaterThanOrEqual(35);
+  });
 });
 
 describe("determinism and bounds", () => {
