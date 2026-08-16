@@ -8,14 +8,21 @@
  * and also carries the noise that must stay out of the skill arrays — years of
  * experience, a degree requirement and soft/leadership asks.
  *
- * Provenance: reconstructed from the technology inventory recorded while
- * reviewing the real posting, not copied from Microsoft's careers site. It is a
- * test input only and is never shown to users. See ./README.md.
+ * Provenance, precisely: the opening paragraph is the verbatim text used in
+ * Scenario A, imported from that fixture rather than duplicated here so the two
+ * scenarios cannot drift and the third-party text exists in exactly one place.
+ * Everything around it — the responsibilities, qualifications and benefits
+ * sections — is written from the technology inventory recorded while reviewing
+ * the real posting, not copied from Microsoft's careers site.
+ *
+ * Test input only; never shown to users. See ./README.md.
  */
+
+import { MICROSOFT_PARTIAL_DESCRIPTION } from "./microsoft-job-partial";
 
 export const MICROSOFT_FULL_DESCRIPTION = `Senior Security Researcher — Identity Threat Detection and Response (ITDR)
 
-Come build one of Microsoft's most exciting security products: Identity Threat Detection and Response (ITDR). As cyber-attacks grow more sophisticated, we help enterprises detect, investigate, and autonomously protect against advanced identity-based attacks and data breaches — from nation-state actors to large-scale ransomware operators. Our research team combines deep knowledge of the attacker landscape and tradecraft to deliver the innovations needed to uncover and stop even the most well-funded adversaries.
+${MICROSOFT_PARTIAL_DESCRIPTION}
 
 Responsibilities
 

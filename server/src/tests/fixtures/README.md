@@ -32,13 +32,18 @@ produced. Both are kept exactly as observed — the point of Scenario A is that
 this thin input was handled reasonably by extraction and still scored zero at
 matching.
 
-`microsoft-job-full.ts` is **reconstructed**, not copied. It was written to
-contain the technology inventory recorded while reviewing the real posting
-(security research, identity platform internals, programming and query
-languages, AI tooling, forensics) together with the non-skill noise a real
-posting carries. It is representative of the original rather than a copy of it,
-which is what the recall assertions need and avoids republishing a third party's
-text.
+`microsoft-job-full.ts` is **reconstructed apart from its opening paragraph.**
+That paragraph is the verbatim Scenario A input and is imported from
+`microsoft-job-partial.ts` rather than copied, so the third-party text lives in
+exactly one file and the two scenarios cannot drift apart. Everything after it —
+responsibilities, required and preferred qualifications, benefits — was written
+from the technology inventory recorded while reviewing the real posting (security
+research, identity platform internals, programming and query languages, AI
+tooling, forensics) together with the non-skill noise a real posting carries.
+
+So the full fixture is representative of the original rather than a copy of it,
+which is what the recall assertions need while keeping republished third-party
+text to the single paragraph the regression case actually requires.
 
 ## Why two scenarios
 
