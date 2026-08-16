@@ -43,7 +43,11 @@ import {
   type JobsBoard,
   type UpdateJobInput,
 } from "../types/jobs";
-import type { JobAnalysis, MatchAnalysis } from "../types/matching";
+import type {
+  JobAnalysis,
+  MatchAnalysis,
+  SkillMatchTier,
+} from "../types/matching";
 import type { ParsedResume } from "../types/parsedResume";
 
 function emptyBoard(): JobsBoard {
@@ -773,6 +777,140 @@ function PracticeHistorySection({
   );
 }
 
+const TIER_STYLES: Record<SkillMatchTier, { label: string; className: string }> = {
+  exact: {
+    label: "exact",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  },
+  alias: {
+    label: "alias",
+    className: "border-teal-200 bg-teal-50 text-teal-800",
+  },
+  related: {
+    label: "related",
+    className: "border-amber-200 bg-amber-50 text-amber-800",
+  },
+  none: {
+    label: "no match",
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+  },
+};
+
+const VISIBLE_DETAIL_ROWS = 8;
+
+/**
+ * Per-requirement breakdown of the deterministic score.
+ *
+ * Renders nothing for matches computed before graded scoring existed, so the
+ * flat matched/missing lists remain the display for those.
+ */
+function MatchDetailsTable({ match }: { match: MatchAnalysis }) {
+  const [showAll, setShowAll] = useState(false);
+  const details = match.matchDetails ?? [];
+
+  if (details.length === 0) return null;
+
+  const visible = showAll ? details : details.slice(0, VISIBLE_DETAIL_ROWS);
+  const skillCoverage =
+    match.advantageBonus === undefined
+      ? match.algorithmicScore
+      : Math.max(0, match.algorithmicScore - match.advantageBonus);
+
+  return (
+    <div className="mt-6 rounded-xl border border-indigo-100 bg-white/70 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold text-indigo-950">
+          How the skill score was reached
+        </p>
+        {match.scorableRequiredCount !== undefined ? (
+          <p className="text-xs text-slate-500">
+            {match.scorableRequiredCount} scored requirement
+            {match.scorableRequiredCount === 1 ? "" : "s"}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[34rem] border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+              <th scope="col" className="py-1.5 pr-3 font-semibold">Required</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">Your skill</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">Match</th>
+              <th scope="col" className="py-1.5 text-right font-semibold">Credit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((detail) => {
+              const tier = TIER_STYLES[detail.tier] ?? TIER_STYLES.none;
+              return (
+                <tr key={detail.required} className="border-t border-slate-100">
+                  <td className="py-2 pr-3 font-medium text-slate-800">
+                    {detail.required}
+                  </td>
+                  <td className="py-2 pr-3 text-slate-700">
+                    {detail.matchedBy ?? <span className="text-slate-400">—</span>}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span
+                      title={detail.reason}
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${tier.className}`}
+                    >
+                      {tier.label}
+                    </span>
+                  </td>
+                  <td className="py-2 text-right tabular-nums text-slate-700">
+                    {detail.credit}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {details.length > VISIBLE_DETAIL_ROWS ? (
+        <button
+          type="button"
+          onClick={() => setShowAll((current) => !current)}
+          className="mt-3 text-xs font-semibold text-indigo-700 hover:underline"
+        >
+          {showAll ? "Show fewer" : `Show all ${details.length} requirements`}
+        </button>
+      ) : null}
+
+      <dl className="mt-4 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-600">
+        <div className="flex justify-between gap-3">
+          <dt>Skill coverage</dt>
+          <dd className="tabular-nums">{skillCoverage}</dd>
+        </div>
+        {match.advantageBonus !== undefined ? (
+          <div className="flex justify-between gap-3">
+            <dt>Advantage bonus</dt>
+            <dd className="tabular-nums">+{match.advantageBonus}</dd>
+          </div>
+        ) : null}
+        <div className="flex justify-between gap-3 font-semibold text-slate-800">
+          <dt>Deterministic score</dt>
+          <dd className="tabular-nums">{match.algorithmicScore}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt>Combined with the AI semantic score of {match.aiSemanticScore}</dt>
+          <dd className="tabular-nums font-semibold text-slate-800">
+            {match.finalScore}
+          </dd>
+        </div>
+        {match.relatedShare !== undefined && match.relatedShare > 0 ? (
+          <p className="pt-1 text-slate-500">
+            {Math.round(match.relatedShare * 100)}% of the credit came from related
+            skills rather than exact matches.
+          </p>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
 function MatchReviewSection({ match }: { match: MatchAnalysis }) {
   return (
     <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
@@ -808,6 +946,7 @@ function MatchReviewSection({ match }: { match: MatchAnalysis }) {
         <SkillChips label="Matched advantage skills" items={match.matchedAdvantage} variant="advantage" />
       </div>
 
+      <MatchDetailsTable match={match} />
       <ResumeFitDetails match={match} />
     </section>
   );
