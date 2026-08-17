@@ -34,6 +34,8 @@ export interface MatchAnalysis {
   matchedAdvantage: string[];
   explanation: string;
   matchDetails?: SkillMatchDetail[];
+  /** Tools the job named that the candidate demonstrably uses. */
+  matchedTools?: string[];
   relatedShare?: number;
   scorableRequiredCount?: number;
   advantageBonus?: number;

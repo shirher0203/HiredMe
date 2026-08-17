@@ -778,21 +778,30 @@ function PracticeHistorySection({
   );
 }
 
+/**
+ * Candidate-facing wording for each match tier.
+ *
+ * `exact` and `alias` are the same thing to a reader — they have the skill, we
+ * just spelled it differently — so both read as a strong match. The internal
+ * tier names and the numeric credit behind them stay on the API for testing and
+ * support; a candidate does not need our scoring vocabulary to understand where
+ * they stand.
+ */
 const TIER_STYLES: Record<SkillMatchTier, { label: string; className: string }> = {
   exact: {
-    label: "exact",
+    label: "Strong match",
     className: "border-emerald-200 bg-emerald-50 text-emerald-800",
   },
   alias: {
-    label: "alias",
-    className: "border-teal-200 bg-teal-50 text-teal-800",
+    label: "Strong match",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
   },
   related: {
-    label: "related",
+    label: "Related experience",
     className: "border-amber-200 bg-amber-50 text-amber-800",
   },
   none: {
-    label: "no match",
+    label: "Missing",
     className: "border-slate-200 bg-slate-50 text-slate-600",
   },
 };
@@ -800,10 +809,15 @@ const TIER_STYLES: Record<SkillMatchTier, { label: string; className: string }> 
 const VISIBLE_DETAIL_ROWS = 8;
 
 /**
- * Per-requirement breakdown of the deterministic score.
+ * Requirement-by-requirement view of where the candidate stands.
  *
- * Renders nothing for matches computed before graded scoring existed, so the
- * flat matched/missing lists remain the display for those.
+ * Deliberately carries no numbers. The per-skill credits, the score components
+ * and the weighting are all still on the API response for tests and support, but
+ * showing them here turned the review into a readout of our scoring formula
+ * rather than advice a candidate can act on.
+ *
+ * Renders nothing for matches computed before this breakdown existed, so the flat
+ * matched/missing lists remain the display for those.
  */
 function MatchDetailsTable({ match }: { match: MatchAnalysis }) {
   const [showAll, setShowAll] = useState(false);
@@ -812,33 +826,25 @@ function MatchDetailsTable({ match }: { match: MatchAnalysis }) {
   if (details.length === 0) return null;
 
   const visible = showAll ? details : details.slice(0, VISIBLE_DETAIL_ROWS);
-  const skillCoverage =
-    match.advantageBonus === undefined
-      ? match.algorithmicScore
-      : Math.max(0, match.algorithmicScore - match.advantageBonus);
 
   return (
     <div className="mt-6 rounded-xl border border-indigo-100 bg-white/70 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-semibold text-indigo-950">
-          How the skill score was reached
+          Requirement by requirement
         </p>
-        {match.scorableRequiredCount !== undefined ? (
-          <p className="text-xs text-slate-500">
-            {match.scorableRequiredCount} scored requirement
-            {match.scorableRequiredCount === 1 ? "" : "s"}
-          </p>
-        ) : null}
+        <p className="text-xs text-slate-500">
+          {details.length} requirement{details.length === 1 ? "" : "s"} reviewed
+        </p>
       </div>
 
       <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[34rem] border-collapse text-sm">
+        <table className="w-full min-w-[28rem] border-collapse text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-              <th scope="col" className="py-1.5 pr-3 font-semibold">Required</th>
-              <th scope="col" className="py-1.5 pr-3 font-semibold">Your skill</th>
-              <th scope="col" className="py-1.5 pr-3 font-semibold">Match</th>
-              <th scope="col" className="py-1.5 text-right font-semibold">Credit</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">The job asks for</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">From your CV</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">Where you stand</th>
             </tr>
           </thead>
           <tbody>
@@ -854,14 +860,10 @@ function MatchDetailsTable({ match }: { match: MatchAnalysis }) {
                   </td>
                   <td className="py-2 pr-3">
                     <span
-                      title={detail.reason}
                       className={`rounded-full border px-2 py-0.5 text-xs font-medium ${tier.className}`}
                     >
                       {tier.label}
                     </span>
-                  </td>
-                  <td className="py-2 text-right tabular-nums text-slate-700">
-                    {detail.credit}
                   </td>
                 </tr>
               );
@@ -879,35 +881,6 @@ function MatchDetailsTable({ match }: { match: MatchAnalysis }) {
           {showAll ? "Show fewer" : `Show all ${details.length} requirements`}
         </button>
       ) : null}
-
-      <dl className="mt-4 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-600">
-        <div className="flex justify-between gap-3">
-          <dt>Skill coverage</dt>
-          <dd className="tabular-nums">{skillCoverage}</dd>
-        </div>
-        {match.advantageBonus !== undefined ? (
-          <div className="flex justify-between gap-3">
-            <dt>Advantage bonus</dt>
-            <dd className="tabular-nums">+{match.advantageBonus}</dd>
-          </div>
-        ) : null}
-        <div className="flex justify-between gap-3 font-semibold text-slate-800">
-          <dt>Deterministic score</dt>
-          <dd className="tabular-nums">{match.algorithmicScore}</dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt>Combined with the AI semantic score of {match.aiSemanticScore}</dt>
-          <dd className="tabular-nums font-semibold text-slate-800">
-            {match.finalScore}
-          </dd>
-        </div>
-        {match.relatedShare !== undefined && match.relatedShare > 0 ? (
-          <p className="pt-1 text-slate-500">
-            {Math.round(match.relatedShare * 100)}% of the credit came from related
-            skills rather than exact matches.
-          </p>
-        ) : null}
-      </dl>
     </div>
   );
 }
@@ -926,26 +899,25 @@ function MatchReviewSection({ match }: { match: MatchAnalysis }) {
         <p className="max-w-xl text-sm text-slate-600">{match.explanation}</p>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-            Skill overlap
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-900">{match.algorithmicScore}</p>
-        </div>
-        <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
-            AI semantic score
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-violet-900">{match.aiSemanticScore}</p>
-        </div>
-      </div>
-
+      {/* The deterministic and AI sub-scores are intentionally not shown: they
+          are internal components, and a candidate reading two competing numbers
+          learns less than they do from the breakdown below. Both remain on the
+          API response. */}
       <div className="mt-6 grid gap-5 md:grid-cols-3">
         <SkillChips label="Matched required skills" items={match.matchedRequired} variant="matched" />
         <SkillChips label="Missing required skills" items={match.missingRequired} variant="missing" />
         <SkillChips label="Matched advantage skills" items={match.matchedAdvantage} variant="advantage" />
       </div>
+
+      {match.matchedTools && match.matchedTools.length > 0 ? (
+        <div className="mt-5">
+          <SkillChips
+            label="Tools you already use"
+            items={match.matchedTools}
+            variant="advantage"
+          />
+        </div>
+      ) : null}
 
       <MatchDetailsTable match={match} />
       <ResumeFitDetails match={match} />
