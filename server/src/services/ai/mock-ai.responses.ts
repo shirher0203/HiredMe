@@ -37,6 +37,21 @@ export const mockJobAnalysis: JobAnalysis = {
   seniorityLevel: "junior",
   summary:
     "Junior full-stack role building React and Node features on a MongoDB-backed TypeScript stack.",
+  toolsMentioned: ["git", "jira"],
+  impliedSkills: ["rest", "javascript"],
+  nonSkillRequirements: [
+    "1+ years of experience",
+    "BSc in Computer Science or equivalent",
+    "Strong communication skills",
+  ],
+  skillRelations: {
+    react: ["javascript", "next", "jsx"],
+    node: ["express", "javascript"],
+    mongodb: ["nosql", "mongoose"],
+    typescript: ["javascript"],
+    docker: ["kubernetes", "containers"],
+    aws: ["cloud", "google-cloud-platform"],
+  },
 };
 
 export const mockSemanticMatch: SemanticMatchAiResponse = {

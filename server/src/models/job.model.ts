@@ -29,6 +29,9 @@ export const JOB_SOURCES = ["manual", "match"] as const;
 
 export type JobSource = (typeof JOB_SOURCES)[number];
 
+// The fields after `summary` are additive and optional: jobs analyzed before
+// they existed keep loading, read as empty, and fall back to the curated
+// relation map when matching.
 const jobAnalysisSchema = new Schema(
   {
     roleTitle: { type: String, required: true },
@@ -36,10 +39,22 @@ const jobAnalysisSchema = new Schema(
     advantageSkills: { type: [String], default: [] },
     seniorityLevel: { type: String, enum: ["junior", "mid", "senior"], required: true },
     summary: { type: String, required: true },
+    toolsMentioned: { type: [String], default: undefined },
+    impliedSkills: { type: [String], default: undefined },
+    nonSkillRequirements: { type: [String], default: undefined },
+    // Free-form map of canonical skill -> related canonical terms.
+    skillRelations: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+    },
   },
   { _id: false }
 );
 
+// The resume-aware fields below are optional on purpose: `calculateMatch`
+// only produces them when it is given a parsed resume, and documents written
+// before they existed must keep loading. Declaring no `default` keeps them
+// absent rather than stored as null.
 const matchAnalysisSchema = new Schema(
   {
     finalScore: { type: Number, required: true },
@@ -49,6 +64,23 @@ const matchAnalysisSchema = new Schema(
     missingRequired: { type: [String], default: [] },
     matchedAdvantage: { type: [String], default: [] },
     explanation: { type: String, required: true },
+    // Per-requirement explanation of the deterministic score. Stored as Mixed
+    // rather than a subdocument array: it is a display payload built entirely
+    // by deterministic code from a validated MatchAnalysis, never user input,
+    // and a subdocument array would force every assignment through a cast.
+    // Shape is guaranteed by the matching service and its explainability tests.
+    matchDetails: { type: [Schema.Types.Mixed], default: undefined },
+    relatedShare: { type: Number },
+    scorableRequiredCount: { type: Number },
+    advantageBonus: { type: Number },
+    educationFit: { type: String },
+    experienceFit: { type: String },
+    projectFit: { type: String },
+    languageFit: { type: String },
+    // `default: undefined` suppresses Mongoose's implicit `[]` on array paths
+    // so an absent list stays absent instead of being stored as empty.
+    resumeInsights: { type: [String], default: undefined },
+    matchingEvidence: { type: [String], default: undefined },
   },
   { _id: false }
 );

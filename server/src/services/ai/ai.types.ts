@@ -63,6 +63,15 @@ export interface GenerateQuestionsInput {
   readonly jobRequiredSkills?: string[];
   readonly count: number;
   readonly language?: "en" | "he";
+  /** Question texts the candidate has already seen, so they are not repeated. */
+  readonly excludeQuestions?: string[];
+  /** CV summaries used to ground HR questions in the candidate's real history. */
+  readonly cvContext?: {
+    readonly workExperienceSummary?: string;
+    readonly topProjectsSummary?: string;
+    readonly educationSummary?: string;
+    readonly achievements?: string[];
+  };
 }
 
 /**

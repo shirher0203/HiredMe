@@ -23,6 +23,20 @@ export interface CreatePracticeSessionInput {
   jobRequiredSkills?: string[];
 }
 
+/** Lightweight view of a past attempt, as returned by the list endpoint. */
+export interface PracticeSessionListItem {
+  id: string;
+  jobId: string | null;
+  interviewType: InterviewType;
+  status: "active" | "completed";
+  questionCount: number;
+  answeredCount: number;
+  overallScore: number | null;
+  hasSummary: boolean;
+  createdAt: string | null;
+  completedAt: string | null;
+}
+
 export interface InterviewAttemptSummary {
   summary: string;
   overallScore: number;
@@ -94,6 +108,69 @@ export async function sendPracticeMessage(
       body: JSON.stringify({ questionId, userAnswer }),
     },
     "Failed to evaluate answer."
+  );
+}
+
+/**
+ * Marks the session finished. The server sets `completedAt` and generates the
+ * attempt summary once, so calling this before reading the summary is what keeps
+ * the summary stable and the attempt visible in history as completed.
+ *
+ * Safe to call more than once: completion is idempotent and never re-summarizes.
+ */
+export async function completePracticeSession(
+  sessionId: string
+): Promise<PracticeSession> {
+  return requestJson<PracticeSession>(
+    `/api/practice/sessions/${sessionId}/complete`,
+    {
+      method: "PATCH",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to complete the session."
+  );
+}
+
+/**
+ * Replaces the questions the user has not answered yet. Answered questions and
+ * their evaluations are preserved by the server.
+ */
+export async function regeneratePracticeQuestions(
+  sessionId: string
+): Promise<{ questions: InterviewQuestion[] }> {
+  return requestJson<{ questions: InterviewQuestion[] }>(
+    `/api/practice/sessions/${sessionId}/regenerate`,
+    {
+      method: "POST",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to regenerate questions."
+  );
+}
+
+/**
+ * Past attempts, newest first. Optionally scoped to one application.
+ */
+export async function listPracticeSessions(
+  filters: {
+    jobId?: string;
+    interviewType?: InterviewType;
+    status?: "active" | "completed";
+  } = {}
+): Promise<{ sessions: PracticeSessionListItem[] }> {
+  const params = new URLSearchParams();
+  if (filters.jobId) params.set("jobId", filters.jobId);
+  if (filters.interviewType) params.set("interviewType", filters.interviewType);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.toString();
+
+  return requestJson<{ sessions: PracticeSessionListItem[] }>(
+    `/api/practice/sessions${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: requireAuthHeaders(),
+    },
+    "Failed to load practice history."
   );
 }
 

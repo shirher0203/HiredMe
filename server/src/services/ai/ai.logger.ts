@@ -20,6 +20,7 @@
 // no DB. no Mongoose. no external logging dependency.
 
 import "dotenv/config";
+import { AsyncLocalStorage } from "async_hooks";
 
 type LogLevel = "info" | "debug" | "error";
 
@@ -155,13 +156,40 @@ export interface AiClientCallMeta {
   model: string;
   durationMs: number;
   outputChars: number;
+  promptChars?: number;
+  cacheHit?: boolean;
 }
 
 export function logAiClientCall(meta: AiClientCallMeta): void {
-  emit("debug", "ai.client.call", {
+  recordAiCall(meta.durationMs);
+  const data: Record<string, unknown> = {
     model: meta.model,
     durationMs: meta.durationMs,
     outputChars: meta.outputChars,
+  };
+  if (typeof meta.promptChars === "number") data.promptChars = meta.promptChars;
+  if (typeof meta.cacheHit === "boolean") data.cacheHit = meta.cacheHit;
+  emit("debug", "ai.client.call", data);
+}
+
+export interface AiClientRetryMeta {
+  model: string;
+  attempt: number;
+  maxRetries: number;
+  backoffMs: number;
+  error: unknown;
+}
+
+export function logAiClientRetry(meta: AiClientRetryMeta): void {
+  recordAiRetry();
+  const message =
+    meta.error instanceof Error ? meta.error.message : String(meta.error);
+  emit("info", "ai.client.retry", {
+    model: meta.model,
+    attempt: meta.attempt,
+    maxRetries: meta.maxRetries,
+    backoffMs: meta.backoffMs,
+    error: message,
   });
 }
 
@@ -172,11 +200,81 @@ export interface AiClientErrorMeta {
 }
 
 export function logAiClientError(meta: AiClientErrorMeta): void {
+  recordAiCall(meta.durationMs);
   const message =
     meta.error instanceof Error ? meta.error.message : String(meta.error);
   emit("error", "ai.client.error", {
     model: meta.model,
     durationMs: meta.durationMs,
     error: message,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Per-request AI aggregate
+//
+// Counts and timings only. No prompt text, no output text, no user content, no
+// identifiers — the aggregate exists to answer "how much AI time did this
+// request spend", which is a performance question, not a content question.
+// ---------------------------------------------------------------------------
+
+export interface AiRequestMetrics {
+  aiCallCount: number;
+  totalAiMs: number;
+  retryCount: number;
+}
+
+const metricsStore = new AsyncLocalStorage<AiRequestMetrics>();
+
+function currentMetrics(): AiRequestMetrics | undefined {
+  return metricsStore.getStore();
+}
+
+function recordAiCall(durationMs: number): void {
+  const metrics = currentMetrics();
+  if (!metrics) return;
+  metrics.aiCallCount += 1;
+  metrics.totalAiMs += durationMs;
+}
+
+function recordAiRetry(): void {
+  const metrics = currentMetrics();
+  if (!metrics) return;
+  metrics.retryCount += 1;
+}
+
+/**
+ * Runs `fn` with a fresh AI metrics accumulator. Async-local, so concurrent
+ * requests never contaminate each other's totals.
+ */
+export function runWithAiMetrics<T>(
+  fn: (metrics: AiRequestMetrics) => T
+): T {
+  const metrics: AiRequestMetrics = {
+    aiCallCount: 0,
+    totalAiMs: 0,
+    retryCount: 0,
+  };
+  return metricsStore.run(metrics, () => fn(metrics));
+}
+
+/** Read the current request's AI totals, if the caller is inside a request. */
+export function getAiRequestMetrics(): AiRequestMetrics | undefined {
+  const metrics = currentMetrics();
+  return metrics ? { ...metrics } : undefined;
+}
+
+export function logAiRequestSummary(
+  metrics: AiRequestMetrics,
+  context: { method: string; route: string; statusCode: number }
+): void {
+  if (metrics.aiCallCount === 0) return;
+  emit("info", "ai.request.summary", {
+    method: context.method,
+    route: context.route,
+    statusCode: context.statusCode,
+    aiCallCount: metrics.aiCallCount,
+    totalAiMs: metrics.totalAiMs,
+    retryCount: metrics.retryCount,
   });
 }

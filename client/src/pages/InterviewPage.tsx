@@ -1,8 +1,21 @@
 import { type FormEvent, useId, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import type { AnswerEvaluation, InterviewQuestion, InterviewAttemptSummary } from "../types/interview";
+import type {
+  AnswerEvaluation,
+  InterviewQuestion,
+  InterviewAttemptSummary,
+  InterviewType,
+} from "../types/interview";
 import { fetchJobsBoard } from "../services/jobs";
-import { createPracticeSession, sendPracticeMessage, getPracticeSummary } from "../services/practice";
+import {
+  createPracticeSession,
+  sendPracticeMessage,
+  completePracticeSession,
+  getPracticeSummary,
+  listPracticeSessions,
+  regeneratePracticeQuestions,
+  type PracticeSessionListItem,
+} from "../services/practice";
 import { getUserProfile } from "../services/profile";
 import type { Job } from "../types/jobs";
 import type { ParsedResume } from "../types/parsedResume";
@@ -112,6 +125,143 @@ function ReviewPanel({
   );
 }
 
+function formatAttemptDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString();
+}
+
+/**
+ * Previous practice attempts, so history is somewhere the user can actually go.
+ *
+ * The attempts were already persisted and already listed inside an application's
+ * match review, but nothing on the interview screen led anywhere after finishing
+ * a session. This is the entry point, reusing the same list endpoint and the same
+ * summary panel the live session uses.
+ *
+ * Opening a completed attempt reads its stored summary — no regeneration, so
+ * reviewing an old attempt costs nothing and always shows the same text.
+ */
+function PastAttemptsPanel() {
+  const [attempts, setAttempts] = useState<PracticeSessionListItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [openSummary, setOpenSummary] = useState<InterviewAttemptSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    listPracticeSessions()
+      .then((result) => {
+        if (active) setAttempts(result.sessions);
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err instanceof Error ? err.message : "Failed to load history");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function open(attempt: PracticeSessionListItem) {
+    if (openId === attempt.id) {
+      setOpenId(null);
+      setOpenSummary(null);
+      return;
+    }
+    setOpenId(attempt.id);
+    setOpenSummary(null);
+    setSummaryLoading(true);
+    try {
+      setOpenSummary(await getPracticeSummary(attempt.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load that summary");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  if (attempts !== null && attempts.length === 0) return null;
+
+  return (
+    <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold text-slate-900">Your previous attempts</h3>
+      <p className="mt-2 text-sm text-slate-600">
+        Practising the same questions again? Open a finished attempt to see how you
+        scored last time.
+      </p>
+
+      {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      {attempts === null && !error ? (
+        <p className="mt-3 text-sm text-slate-500">Loading your history...</p>
+      ) : null}
+
+      <ul className="mt-4 space-y-2">
+        {(attempts ?? []).map((attempt) => {
+          const finished = attempt.status === "completed";
+          return (
+            <li key={attempt.id} className="rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => void open(attempt)}
+                disabled={!finished}
+                aria-expanded={openId === attempt.id}
+                className={`flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left ${
+                  finished ? "hover:bg-slate-50" : "cursor-default"
+                }`}
+              >
+                <span className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-semibold text-slate-800">
+                    {attempt.interviewType === "hr" ? "HR" : "Technical"}
+                  </span>
+                  <span className="text-slate-500">
+                    {attempt.answeredCount}/{attempt.questionCount} answered
+                  </span>
+                  <span
+                    className={
+                      finished
+                        ? "rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800"
+                        : "rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800"
+                    }
+                  >
+                    {finished ? "Completed" : "In progress"}
+                  </span>
+                  {formatAttemptDate(attempt.completedAt ?? attempt.createdAt) ? (
+                    <span className="text-xs text-slate-400">
+                      {formatAttemptDate(attempt.completedAt ?? attempt.createdAt)}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex items-center gap-3">
+                  {attempt.overallScore !== null ? (
+                    <span className="text-lg font-semibold text-indigo-900">
+                      {attempt.overallScore}
+                      <span className="text-xs font-medium text-indigo-300">/100</span>
+                    </span>
+                  ) : null}
+                  {finished ? (
+                    <span className="text-xs font-semibold text-indigo-700">
+                      {openId === attempt.id ? "Hide" : "View"}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+
+              {openId === attempt.id ? (
+                <div className="border-t border-slate-100 px-4 pb-4">
+                  <SummaryPanel summary={openSummary} loading={summaryLoading} />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function SummaryPanel({
   summary,
   loading,
@@ -207,6 +357,7 @@ export function InterviewPage() {
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
+  const [interviewType, setInterviewType] = useState<InterviewType>("technical");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [startingPractice, setStartingPractice] = useState(false);
@@ -222,7 +373,12 @@ export function InterviewPage() {
   const [summary, setSummary] = useState<InterviewAttemptSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const summaryFetchedRef = useRef(false);
+  // Ids the user has already answered this session, so regeneration can land on
+  // the first genuinely new question.
+  const answeredIdsRef = useRef<Set<string>>(new Set());
 
   const total = questions.length;
   const progressLabel = `Question ${step + 1} of ${total}`;
@@ -231,6 +387,35 @@ export function InterviewPage() {
     ? jobs?.find((job) => job.id === selectedJobId) ?? null
     : null;
   const current = questions[step];
+
+  /**
+   * Asks the server for a different set of unanswered questions. Answered
+   * questions stay where they are, so the step index is moved to the first
+   * replacement rather than reset.
+   */
+  async function onRegenerate() {
+    if (!practiceSessionId || regenerating || loading) return;
+
+    setRegenerating(true);
+    setRegenerateError(null);
+    try {
+      const result = await regeneratePracticeQuestions(practiceSessionId);
+      setQuestions(result.questions);
+      setDraft("");
+      setSubmittedAnswer(null);
+      setEvaluation(null);
+      const firstReplacement = result.questions.findIndex(
+        (question) => !answeredIdsRef.current.has(question.id)
+      );
+      setStep(firstReplacement === -1 ? 0 : firstReplacement);
+    } catch (err) {
+      setRegenerateError(
+        err instanceof Error ? err.message : "Failed to regenerate questions."
+      );
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -247,6 +432,7 @@ export function InterviewPage() {
       );
       setSubmittedAnswer(text);
       setEvaluation(result.evaluation);
+      answeredIdsRef.current.add(current.id);
     } finally {
       setLoading(false);
     }
@@ -313,8 +499,10 @@ export function InterviewPage() {
 
   async function startPractice() {
     if (startingPractice) return;
-    const jobIdToUse = pendingJobId ?? jobs?.[0]?.id;
-    if (!jobIdToUse) return;
+    // An HR interview is about the candidate, so it can run without a job.
+    // A technical interview still needs one to scope the questions.
+    const jobIdToUse = pendingJobId ?? undefined;
+    if (interviewType === "technical" && !jobIdToUse) return;
 
     setSessionError(null);
     setStartingPractice(true);
@@ -331,15 +519,15 @@ export function InterviewPage() {
       const language = userProfile?.parsed_metadata.language_detected === "he" ? "he" : "en";
 
       const session = await createPracticeSession({
-        interviewType: "technical",
-        jobId: jobIdToUse,
+        interviewType,
+        ...(jobIdToUse ? { jobId: jobIdToUse } : {}),
         count: 5,
         profileSkills,
         language,
       });
       setQuestions(session.questions);
       setPracticeSessionId(session._id);
-      setSelectedJobId(jobIdToUse);
+      setSelectedJobId(jobIdToUse ?? null);
       setStep(0);
       setDraft("");
       setSubmittedAnswer(null);
@@ -359,7 +547,12 @@ export function InterviewPage() {
     if (isComplete && !summaryFetchedRef.current && practiceSessionId) {
       summaryFetchedRef.current = true;
       setSummaryLoading(true);
-      getPracticeSummary(practiceSessionId)
+      // Complete first, then read. Completion is what sets `completedAt`, marks
+      // the attempt finished in history, and generates the summary once — reading
+      // straight from the summary endpoint left the session active forever and
+      // left the summary to be generated by its fallback path instead.
+      completePracticeSession(practiceSessionId)
+        .then(() => getPracticeSummary(practiceSessionId))
         .then(setSummary)
         .catch((err) => {
           console.error("Failed to load summary:", err);
@@ -373,10 +566,40 @@ export function InterviewPage() {
     <div className="min-h-full bg-gradient-to-br from-indigo-50/50 via-white to-violet-50/40">
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Application selector: require user to pick an application before practicing */}
-        {!selectedJobId && (
+        {!practiceSessionId && (
           <section className="mb-8 rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-900">Select an application to practice for</h3>
-            <p className="mt-2 text-sm text-slate-600">Choose one of your saved applications so the practice can be tailored to that role.</p>
+            <h3 className="text-lg font-semibold text-slate-900">Start a practice interview</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              {interviewType === "technical"
+                ? "Choose one of your saved applications so the questions can be tailored to that role."
+                : "HR questions are based on your saved CV. Pick an application if you want, or start without one."}
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Interview type">
+              {(
+                [
+                  ["technical", "Technical"],
+                  ["hr", "HR"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setInterviewType(value);
+                    setSessionError(null);
+                  }}
+                  aria-pressed={interviewType === value}
+                  className={
+                    interviewType === value
+                      ? "rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+                      : "rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
             <div className="mt-4">
               {jobsLoading ? (
@@ -391,7 +614,11 @@ export function InterviewPage() {
                     onChange={(e) => setPendingJobId(e.target.value || null)}
                     className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   >
-                    <option value="">-- pick an application --</option>
+                    <option value="">
+                      {interviewType === "hr"
+                        ? "-- no application (CV only) --"
+                        : "-- pick an application --"}
+                    </option>
                     {jobs.map((j) => (
                       <option key={j.id} value={j.id}>
                         {j.company ? `${j.company} — ${j.title}` : j.title}
@@ -401,7 +628,9 @@ export function InterviewPage() {
                   <button
                     type="button"
                     onClick={startPractice}
-                    disabled={startingPractice || !pendingJobId}
+                    disabled={
+                      startingPractice || (interviewType === "technical" && !pendingJobId)
+                    }
                     className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {startingPractice ? "Starting…" : "Start practice"}
@@ -412,15 +641,34 @@ export function InterviewPage() {
                   ) : null}
                 </>
               ) : (
-                <div className="mt-2 flex items-center gap-3">
-                  <p className="text-sm text-slate-600">No applications found.</p>
-                  <Link to="/applications" className="text-sm font-semibold text-indigo-700">Go to Applications</Link>
+                <div className="mt-2 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-slate-600">No applications found.</p>
+                    <Link to="/applications" className="text-sm font-semibold text-indigo-700">Go to Applications</Link>
+                  </div>
+                  {/* An HR interview only needs a CV, so it stays available here. */}
+                  {interviewType === "hr" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={startPractice}
+                        disabled={startingPractice}
+                        className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {startingPractice ? "Starting…" : "Start HR practice"}
+                      </button>
+                      {sessionError ? (
+                        <p className="text-sm text-red-600">{sessionError}</p>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>
           </section>
         )}
-        {selectedJobId && (
+        {!practiceSessionId && <PastAttemptsPanel />}
+        {practiceSessionId && (
           <>
             <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -475,11 +723,23 @@ export function InterviewPage() {
 
             {current ? (
             <section className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/40 p-6 shadow-md shadow-indigo-500/5 ring-1 ring-indigo-500/10 sm:p-8">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-800">
               {current.topic}
             </span>
+            <button
+              type="button"
+              onClick={() => void onRegenerate()}
+              disabled={regenerating || loading}
+              title="Replace the questions you have not answered yet"
+              className="rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {regenerating ? "Regenerating…" : "New questions"}
+            </button>
           </div>
+          {regenerateError ? (
+            <p className="mt-3 text-sm text-red-600">{regenerateError}</p>
+          ) : null}
           <h2 className="mt-4 text-lg font-semibold leading-snug text-slate-900">
             {current.question}
           </h2>

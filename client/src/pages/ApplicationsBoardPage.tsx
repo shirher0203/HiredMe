@@ -11,7 +11,12 @@ import {
 } from "@dnd-kit/core";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { StagedProgress } from "../components/StagedProgress";
 import { getAuthSession } from "../services/auth";
+import {
+  listPracticeSessions,
+  type PracticeSessionListItem,
+} from "../services/practice";
 import {
   analyzeJob as analyzeSavedJob,
   createJob,
@@ -39,7 +44,11 @@ import {
   type JobsBoard,
   type UpdateJobInput,
 } from "../types/jobs";
-import type { JobAnalysis, MatchAnalysis } from "../types/matching";
+import type {
+  JobAnalysis,
+  MatchAnalysis,
+  SkillMatchTier,
+} from "../types/matching";
 import type { ParsedResume } from "../types/parsedResume";
 
 function emptyBoard(): JobsBoard {
@@ -622,6 +631,260 @@ function ResumeReviewSection({ resume }: { resume: ParsedResume }) {
   );
 }
 
+function FitNote({ label, value }: { label: string; value: string | undefined }) {
+  if (!value) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-sm text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function EvidenceList({ label, items }: { label: string; items: string[] | undefined }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Resume-aware detail the AI produces only when the user has a saved CV.
+ * Renders nothing at all for older matches that have none of it.
+ */
+function ResumeFitDetails({ match }: { match: MatchAnalysis }) {
+  const hasAny = Boolean(
+    match.educationFit ||
+      match.experienceFit ||
+      match.projectFit ||
+      match.languageFit ||
+      match.resumeInsights?.length ||
+      match.matchingEvidence?.length
+  );
+  if (!hasAny) return null;
+
+  return (
+    <div className="mt-6 space-y-4 rounded-xl border border-indigo-100 bg-white/70 p-4">
+      <p className="text-sm font-semibold text-indigo-950">How your CV lines up</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FitNote label="Experience" value={match.experienceFit} />
+        <FitNote label="Education" value={match.educationFit} />
+        <FitNote label="Projects" value={match.projectFit} />
+        <FitNote label="Languages" value={match.languageFit} />
+      </div>
+      <EvidenceList label="Evidence from your CV" items={match.matchingEvidence} />
+      <EvidenceList label="Suggestions" items={match.resumeInsights} />
+    </div>
+  );
+}
+
+function formatAttemptDate(value: string | null): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString();
+}
+
+/**
+ * Prior interview attempts for this application, newest first, with the change
+ * in score between consecutive attempts. The delta is computed here rather than
+ * server-side — the list already carries everything it needs.
+ */
+function PracticeHistorySection({
+  attempts,
+  loading,
+}: {
+  attempts: PracticeSessionListItem[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-sm text-slate-500">Loading interview history...</p>
+      </section>
+    );
+  }
+
+  if (attempts.length === 0) return null;
+
+  const scored = attempts.filter((attempt) => attempt.overallScore !== null);
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <h3 className="text-base font-semibold text-slate-900">Interview attempts</h3>
+      <ul className="mt-3 space-y-2">
+        {attempts.map((attempt) => {
+          const scoreIndex = scored.findIndex((item) => item.id === attempt.id);
+          const previous = scoreIndex >= 0 ? scored[scoreIndex + 1] : undefined;
+          const delta =
+            attempt.overallScore !== null && previous?.overallScore != null
+              ? attempt.overallScore - previous.overallScore
+              : null;
+
+          return (
+            <li
+              key={attempt.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm"
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-medium capitalize text-slate-800">
+                  {attempt.interviewType}
+                </span>
+                <span className="text-slate-400">·</span>
+                <span className="text-slate-600">
+                  {attempt.answeredCount}/{attempt.questionCount} answered
+                </span>
+                {attempt.status === "active" ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                    in progress
+                  </span>
+                ) : null}
+              </span>
+              <span className="flex items-center gap-3">
+                {attempt.overallScore !== null ? (
+                  <span className="font-semibold tabular-nums text-slate-900">
+                    {attempt.overallScore}
+                    <span className="text-xs font-normal text-slate-400">/100</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-500">no score yet</span>
+                )}
+                {delta !== null && delta !== 0 ? (
+                  <span
+                    className={
+                      delta > 0
+                        ? "text-xs font-semibold text-emerald-700"
+                        : "text-xs font-semibold text-red-700"
+                    }
+                  >
+                    {delta > 0 ? `+${delta}` : delta}
+                  </span>
+                ) : null}
+                <span className="text-xs text-slate-500">
+                  {formatAttemptDate(attempt.completedAt ?? attempt.createdAt)}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Candidate-facing wording for each match tier.
+ *
+ * `exact` and `alias` are the same thing to a reader — they have the skill, we
+ * just spelled it differently — so both read as a strong match. The internal
+ * tier names and the numeric credit behind them stay on the API for testing and
+ * support; a candidate does not need our scoring vocabulary to understand where
+ * they stand.
+ */
+const TIER_STYLES: Record<SkillMatchTier, { label: string; className: string }> = {
+  exact: {
+    label: "Strong match",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  },
+  alias: {
+    label: "Strong match",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  },
+  related: {
+    label: "Related experience",
+    className: "border-amber-200 bg-amber-50 text-amber-800",
+  },
+  none: {
+    label: "Missing",
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+  },
+};
+
+const VISIBLE_DETAIL_ROWS = 8;
+
+/**
+ * Requirement-by-requirement view of where the candidate stands.
+ *
+ * Deliberately carries no numbers. The per-skill credits, the score components
+ * and the weighting are all still on the API response for tests and support, but
+ * showing them here turned the review into a readout of our scoring formula
+ * rather than advice a candidate can act on.
+ *
+ * Renders nothing for matches computed before this breakdown existed, so the flat
+ * matched/missing lists remain the display for those.
+ */
+function MatchDetailsTable({ match }: { match: MatchAnalysis }) {
+  const [showAll, setShowAll] = useState(false);
+  const details = match.matchDetails ?? [];
+
+  if (details.length === 0) return null;
+
+  const visible = showAll ? details : details.slice(0, VISIBLE_DETAIL_ROWS);
+
+  return (
+    <div className="mt-6 rounded-xl border border-indigo-100 bg-white/70 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold text-indigo-950">
+          Requirement by requirement
+        </p>
+        <p className="text-xs text-slate-500">
+          {details.length} requirement{details.length === 1 ? "" : "s"} reviewed
+        </p>
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[28rem] border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+              <th scope="col" className="py-1.5 pr-3 font-semibold">The job asks for</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">From your CV</th>
+              <th scope="col" className="py-1.5 pr-3 font-semibold">Where you stand</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((detail) => {
+              const tier = TIER_STYLES[detail.tier] ?? TIER_STYLES.none;
+              return (
+                <tr key={detail.required} className="border-t border-slate-100">
+                  <td className="py-2 pr-3 font-medium text-slate-800">
+                    {detail.required}
+                  </td>
+                  <td className="py-2 pr-3 text-slate-700">
+                    {detail.matchedBy ?? <span className="text-slate-400">—</span>}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${tier.className}`}
+                    >
+                      {tier.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {details.length > VISIBLE_DETAIL_ROWS ? (
+        <button
+          type="button"
+          onClick={() => setShowAll((current) => !current)}
+          className="mt-3 text-xs font-semibold text-indigo-700 hover:underline"
+        >
+          {showAll ? "Show fewer" : `Show all ${details.length} requirements`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function MatchReviewSection({ match }: { match: MatchAnalysis }) {
   return (
     <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
@@ -636,26 +899,28 @@ function MatchReviewSection({ match }: { match: MatchAnalysis }) {
         <p className="max-w-xl text-sm text-slate-600">{match.explanation}</p>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-            Skill overlap
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-900">{match.algorithmicScore}</p>
-        </div>
-        <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
-            AI semantic score
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-violet-900">{match.aiSemanticScore}</p>
-        </div>
-      </div>
-
+      {/* The deterministic and AI sub-scores are intentionally not shown: they
+          are internal components, and a candidate reading two competing numbers
+          learns less than they do from the breakdown below. Both remain on the
+          API response. */}
       <div className="mt-6 grid gap-5 md:grid-cols-3">
         <SkillChips label="Matched required skills" items={match.matchedRequired} variant="matched" />
         <SkillChips label="Missing required skills" items={match.missingRequired} variant="missing" />
         <SkillChips label="Matched advantage skills" items={match.matchedAdvantage} variant="advantage" />
       </div>
+
+      {match.matchedTools && match.matchedTools.length > 0 ? (
+        <div className="mt-5">
+          <SkillChips
+            label="Tools you already use"
+            items={match.matchedTools}
+            variant="advantage"
+          />
+        </div>
+      ) : null}
+
+      <MatchDetailsTable match={match} />
+      <ResumeFitDetails match={match} />
     </section>
   );
 }
@@ -708,6 +973,9 @@ function JobReviewModal({
   error,
   onClose,
   onGoToProfile,
+  onReanalyze,
+  attempts,
+  attemptsLoading,
 }: {
   job: Job;
   jobAnalysis: JobAnalysis | null;
@@ -717,6 +985,9 @@ function JobReviewModal({
   error: string | null;
   onClose: () => void;
   onGoToProfile: () => void;
+  onReanalyze: () => void;
+  attempts: PracticeSessionListItem[];
+  attemptsLoading: boolean;
 }) {
   const profileError = error?.toLowerCase().includes("profile") ?? false;
 
@@ -743,18 +1014,32 @@ function JobReviewModal({
               {job.company ? ` at ${job.company}` : ""}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="self-start rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Close
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start">
+            <button
+              type="button"
+              onClick={onReanalyze}
+              disabled={loading}
+              title="Discard the saved analysis and run it again"
+              className="rounded-xl border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? "Analyzing..." : "Re-analyze"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         {loading ? (
           <div className="py-10">
-            <p className="text-sm font-medium text-slate-700">Analyzing application...</p>
+            <StagedProgress
+              active={loading}
+              className="text-sm font-medium text-slate-700"
+            />
             <div className="mt-4 rounded-full bg-slate-200 p-1">
               <div className="h-2 w-full animate-pulse rounded-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-sky-300" />
             </div>
@@ -781,6 +1066,7 @@ function JobReviewModal({
             <ResumeReviewSection resume={parsedResume} />
             <MatchReviewSection match={matchAnalysis} />
             <JobAnalysisReviewSection analysis={jobAnalysis} />
+            <PracticeHistorySection attempts={attempts} loading={attemptsLoading} />
           </div>
         ) : null}
       </div>
@@ -824,6 +1110,11 @@ function JobFormModal({
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [contact, setContact] = useState(initial?.contact ?? "");
   const [jobUrl, setJobUrl] = useState(initial?.jobUrl ?? "");
+  // Nudge only when the user clearly expected the URL to do the work: a link is
+  // present but the description is barely more than an intro paragraph. Advisory
+  // only — it never blocks submitting.
+  const showShortDescriptionHint =
+    jobUrl.trim() !== "" && description.trim().length > 0 && description.trim().length < 400;
   const [status, setStatus] = useState<JobStatus>(initial?.status ?? "applied");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -914,8 +1205,14 @@ function JobFormModal({
               required
               rows={4}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="Paste the job description..."
+              placeholder="Paste the full job description — this is the only text the AI analyses."
             />
+            {showShortDescriptionHint ? (
+              <p className="mt-1 text-xs text-amber-700">
+                This description is short. Match quality depends on pasting the full
+                posting, not just the intro paragraph.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -958,6 +1255,10 @@ function JobFormModal({
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               placeholder="https://..."
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Stored as a reference link only. HiredMe does not read the job
+              description from this URL — paste it above.
+            </p>
           </div>
 
           {mode === "create" ? (
@@ -1025,6 +1326,8 @@ export function ApplicationsBoardPage() {
   const [reviewParsedResume, setReviewParsedResume] = useState<ParsedResume | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewAttempts, setReviewAttempts] = useState<PracticeSessionListItem[]>([]);
+  const [reviewAttemptsLoading, setReviewAttemptsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -1200,15 +1503,30 @@ export function ApplicationsBoardPage() {
     }
   }
 
-  async function handleReview(job: Job) {
+  /**
+   * Runs the match for a job and shows the result.
+   *
+   * `force` bypasses the server-side analysis cache. Without it a job whose
+   * description has not changed always returns the analysis it was given the
+   * first time, so an application analyzed before a scoring change can never
+   * pick the new one up.
+   */
+  async function handleReview(job: Job, options: { force?: boolean } = {}) {
     setReviewJob(job);
     setReviewJobAnalysis(job.jobAnalysis);
     setReviewMatchAnalysis(job.matchAnalysis);
     setReviewParsedResume(null);
     setReviewError(null);
     setReviewLoading(true);
+    // Prior attempts are independent of the analysis, so a failure to load them
+    // must not surface as a match error.
+    setReviewAttemptsLoading(true);
+    void listPracticeSessions({ jobId: job.id })
+      .then((result) => setReviewAttempts(result.sessions))
+      .catch(() => setReviewAttempts([]))
+      .finally(() => setReviewAttemptsLoading(false));
     try {
-      const result = await analyzeSavedJob(job.id);
+      const result = await analyzeSavedJob(job.id, { force: options.force ?? false });
       setReviewJob(result.job);
       setReviewJobAnalysis(result.jobAnalysis);
       setReviewMatchAnalysis(result.matchAnalysis);
@@ -1223,6 +1541,8 @@ export function ApplicationsBoardPage() {
 
   function closeReviewModal() {
     setReviewJob(null);
+    setReviewAttempts([]);
+    setReviewAttemptsLoading(false);
     setReviewJobAnalysis(null);
     setReviewMatchAnalysis(null);
     setReviewParsedResume(null);
@@ -1371,6 +1691,9 @@ export function ApplicationsBoardPage() {
             closeReviewModal();
             navigate("/profile");
           }}
+          onReanalyze={() => void handleReview(reviewJob, { force: true })}
+          attempts={reviewAttempts}
+          attemptsLoading={reviewAttemptsLoading}
         />
       ) : null}
     </div>

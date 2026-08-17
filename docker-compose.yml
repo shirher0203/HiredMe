@@ -40,10 +40,12 @@ services:
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
       MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-hiredme}:${MONGO_INITDB_ROOT_PASSWORD:-hiredme_password}@mongo:27017/${MONGO_INITDB_DATABASE:-hiredme}?authSource=admin
       JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_characters_for_docker}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_KEY: ${GOOGLE_GENERATIVE_AI_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-lite-latest}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-30000}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_TOTAL_BUDGET_MS: ${AI_TOTAL_BUDGET_MS:-45000}
       USE_MOCK_AI: ${USE_MOCK_AI:-false}
       UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
     volumes:
