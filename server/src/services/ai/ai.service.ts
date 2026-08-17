@@ -1278,12 +1278,24 @@ export async function calculateMatch(
     const rawProfileSkills = profile?.skills ?? [];
     const requiredSkills = jobAnalysis?.requiredSkills ?? [];
     const advantageSkills = jobAnalysis?.advantageSkills ?? [];
-    // Absent on jobs analyzed before relations were extracted; graded matching
-    // then falls back to the curated relation map.
-    const matchOptions = { skillRelations: jobAnalysis?.skillRelations ?? {} };
+    // Absent on jobs analyzed before relations / tools were extracted; matching
+    // then falls back to the curated relation map and simply scores no tools.
+    const matchOptions = {
+      skillRelations: jobAnalysis?.skillRelations ?? {},
+      toolsMentioned: jobAnalysis?.toolsMentioned ?? [],
+      nonSkillRequirements: jobAnalysis?.nonSkillRequirements ?? [],
+    };
 
     if (!resume) {
       const profileSkills = rawProfileSkills;
+      // Without a parsed resume the only experience/education signal is whatever
+      // the profile form captured.
+      const formOptions = {
+        ...matchOptions,
+        experienceYears: profile?.experienceYears ?? 0,
+        hasDegree:
+          typeof profile?.education === "string" && profile.education.trim() !== "",
+      };
 
       if (isMockMode()) {
         return buildDeterministicMatch(
@@ -1293,7 +1305,7 @@ export async function calculateMatch(
           mockSemanticMatch.aiSemanticScore,
           mockSemanticMatch.explanation,
           undefined,
-          matchOptions
+          formOptions
         );
       }
 
@@ -1318,12 +1330,20 @@ export async function calculateMatch(
         semantic.aiSemanticScore,
         semantic.explanation,
         undefined,
-        matchOptions
+        formOptions
       );
     }
 
     const enrichment = enrichFromResume(resume);
     const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
+    // The resume carries the richer signals: skills the parser left in prose,
+    // the experience estimate, and whether a qualification is named.
+    const resumeOptions = {
+      ...matchOptions,
+      evidenceSkills: enrichment.evidenceSkills,
+      experienceYears: enrichment.experienceYears,
+      hasDegree: enrichment.hasDegree,
+    };
 
     if (isMockMode()) {
       return buildDeterministicMatch(
@@ -1333,7 +1353,7 @@ export async function calculateMatch(
         mockResumeAwareSemanticMatch.aiSemanticScore,
         mockResumeAwareSemanticMatch.explanation,
         extractMatchExtras(mockResumeAwareSemanticMatch),
-        matchOptions
+        resumeOptions
       );
     }
 
@@ -1363,7 +1383,7 @@ export async function calculateMatch(
       semantic.aiSemanticScore,
       semantic.explanation,
       extractMatchExtras(semantic),
-      matchOptions
+      resumeOptions
     );
   });
 }

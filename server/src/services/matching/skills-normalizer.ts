@@ -19,6 +19,7 @@ import {
   SLASH_COMPOUNDS,
 } from "./skill-aliases.data";
 import {
+  SKILL_FAMILIES,
   getCuratedRelations,
   getSkillFamily,
   isNeverRelated,
@@ -273,6 +274,86 @@ export function atomizeSkills(skills: string[]): string[] {
       if (seen.has(atom)) continue;
       seen.add(atom);
       out.push(atom);
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Harvesting canonical skills out of CV free text
+// ---------------------------------------------------------------------------
+
+/**
+ * Vocabulary of terms the taxonomy already recognises, longest first.
+ *
+ * Longest-first is what keeps "windows internals" from being reported as
+ * "windows", and "security research" from collapsing to "security".
+ */
+const HARVEST_VOCABULARY: readonly string[] = (() => {
+  const terms = new Set<string>();
+  for (const key of Object.keys(SKILL_ALIASES)) terms.add(key);
+  for (const value of Object.values(SKILL_ALIASES)) terms.add(value);
+  for (const key of Object.keys(SKILL_FAMILIES)) terms.add(key);
+  // Hyphenated canonical forms rarely appear that way in prose; also look for
+  // the spaced wording a human would actually write.
+  for (const term of [...terms]) {
+    if (term.includes("-")) terms.add(term.replace(/-/g, " "));
+  }
+  return [...terms]
+    .filter((term) => term.length >= 3)
+    .sort((a, b) => b.length - a.length);
+})();
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Find canonical skills that literally appear in a piece of CV prose.
+ *
+ * This is dictionary lookup over the candidate's own words, not inference: a
+ * term is only returned when the text actually contains it as a whole word or
+ * phrase. Nothing is derived from a job title's *shape* — "Security Analyst"
+ * yields `security` because the word is there, while "Analyst" alone yields
+ * nothing.
+ *
+ * Its purpose is narrow: a resume parser that files "5 years leading
+ * cybersecurity investigations" under work experience rather than under
+ * `technical_skills` should not make that expertise invisible to matching.
+ */
+export function harvestKnownSkills(text: string): string[] {
+  const haystack = cleanSkillText(text);
+  if (haystack === "") return [];
+
+  const found: string[] = [];
+  const seen = new Set<string>();
+  // Blanked out as terms are consumed, so an inner word of a longer phrase is
+  // not reported a second time on its own.
+  let remaining = haystack;
+
+  for (const term of HARVEST_VOCABULARY) {
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, "gu");
+    if (!pattern.test(remaining)) continue;
+    remaining = remaining.replace(pattern, (match) => " ".repeat(match.length));
+
+    const canonical = normalizeSkill(term);
+    if (canonical === "" || seen.has(canonical)) continue;
+    seen.add(canonical);
+    found.push(canonical);
+  }
+
+  return found;
+}
+
+/** Harvest across several pieces of prose, deduplicated, first-seen order. */
+export function harvestKnownSkillsFrom(texts: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const text of texts) {
+    for (const skill of harvestKnownSkills(text)) {
+      if (seen.has(skill)) continue;
+      seen.add(skill);
+      out.push(skill);
     }
   }
   return out;

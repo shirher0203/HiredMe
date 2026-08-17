@@ -120,6 +120,63 @@ export const MICROSOFT_FULL_NON_SKILL_PHRASES = [
 ] as const;
 
 /**
+ * The analysis real Gemini produced for the full posting during manual
+ * validation, already canonicalized by `validateJobAnalysis`.
+ *
+ * Kept as a fixture so the scoring matrix can be measured against a job shape
+ * the system actually emits — ten required skills, a short advantage list, a long
+ * tools list and genuine non-skill noise — rather than a shape invented to suit
+ * the assertions.
+ */
+export const MICROSOFT_FULL_RECORDED_JOB_ANALYSIS = {
+  roleTitle: "Senior Security Researcher — Identity Threat Detection and Response",
+  requiredSkills: [
+    "security-research",
+    "threat-detection",
+    "incident-response",
+    "windows-internals",
+    "threat-hunting",
+    "reverse-engineering",
+    "detection-engineering",
+    "python",
+    "c#",
+    "c++",
+  ],
+  advantageSkills: ["cloud-forensics", "generative-ai", "prompt-design"],
+  toolsMentioned: [
+    "mitre-att-ck",
+    "kerberos",
+    "ntlm",
+    "ldap",
+    "oauth2",
+    "saml",
+    "kql",
+    "sql",
+    "cypher",
+    "github-copilot",
+    "security-copilot",
+    "gpt",
+    "claude",
+  ],
+  impliedSkills: [
+    "malware-analysis",
+    "digital-forensics",
+    "authentication-protocols",
+    "data-analysis",
+  ],
+  nonSkillRequirements: [
+    "5+ years of experience in cyber security, security research, threat detection or incident response",
+    "BSc in Computer Science, Software Engineering or equivalent practical experience",
+    "Excellent written and verbal communication skills in English",
+    "Proven team player who thrives in a highly collaborative research environment",
+    "Mentor junior researchers and represent the team's findings to senior stakeholders",
+  ],
+  seniorityLevel: "senior" as const,
+  summary:
+    "Senior security research role on Microsoft's Identity Threat Detection and Response team.",
+};
+
+/**
  * Raw `analyzeJob` output recorded against real Gemini for the full posting,
  * kept verbatim so the recall assertions run offline. Compare it with the
  * four-skill result the partial paragraph produced: the difference is what a

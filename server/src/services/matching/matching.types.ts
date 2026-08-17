@@ -94,6 +94,40 @@ export interface SkillMatchDetail {
   credit: number;
   reason: string;
   family?: string;
+  /**
+   * Where the matching profile skill came from.
+   *
+   * `skills`     — a skills array on the profile.
+   * `experience` — harvested verbatim from CV prose (role, responsibility,
+   *                achievement, project or field of study).
+   */
+  source?: "skills" | "experience";
+}
+
+/**
+ * The deterministic score, broken into the evidence that produced it.
+ *
+ * Kept on the analysis for testing, debugging and support: the public UI shows a
+ * candidate-facing summary, but the components are what make a score arguable
+ * after the fact. Every field is additive into `algorithmicScore`.
+ */
+export interface MatchScoreComponents {
+  /** Graded required-skill coverage, 0-100. The dominant term. */
+  coverageScore: number;
+  /** Preferred skills the candidate already has. */
+  advantageBonus: number;
+  /** Explicitly named tools/technologies the candidate overlaps with. */
+  toolsBonus: number;
+  /** Relevant professional experience. Zero without domain overlap. */
+  domainExperienceBonus: number;
+  /** Formal qualification, only when the job asks for one. */
+  educationBonus: number;
+  /** 0..1 — how much domain overlap was established at all. */
+  domainRelevance: number;
+  /** Distinct matched signals across required, advantage and tools. */
+  relevanceSignals: number;
+  matchedToolsCount: number;
+  toolsConsidered: number;
 }
 
 /**
@@ -123,6 +157,10 @@ export interface MatchAnalysis {
   /** Requirements that were actually scoreable, i.e. excluding years and degrees. */
   scorableRequiredCount?: number;
   advantageBonus?: number;
+  /** Tools/technologies from the job the candidate demonstrably overlaps with. */
+  matchedTools?: string[];
+  /** Additive breakdown of `algorithmicScore`. Absent on older matches. */
+  scoreComponents?: MatchScoreComponents;
   educationFit?: string;
   experienceFit?: string;
   projectFit?: string;

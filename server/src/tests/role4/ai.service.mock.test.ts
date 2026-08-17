@@ -83,12 +83,19 @@ describe("ai.service — mock mode (USE_MOCK_AI=true)", () => {
     expect(result.matchedRequired).toEqual(["react", "node"]);
     expect(result.missingRequired).toEqual(["mongodb"]);
     expect(result.matchedAdvantage).toEqual(["typescript"]);
-    // Was 67 (2 of 3 required skills). The advantage bonus now contributes:
-    // one of two advantage skills matched adds 5, giving round(66.67 + 5) = 72.
-    expect(result.algorithmicScore).toBe(72);
+    // 66.67 coverage (2 of 3 required) + 5 advantage (1 of 2) + 2.4 relevant
+    // experience = 74.
+    //
+    // The experience term is new. It was 72 while the deterministic score was
+    // coverage plus advantage only; this profile has one year against a junior
+    // role and two matched requirements, so domain relevance is established and
+    // one fifth of the experience allowance is earned: 12 * (1/5) * 1 = 2.4.
+    expect(result.algorithmicScore).toBe(74);
     expect(result.advantageBonus).toBe(5);
+    expect(result.scoreComponents?.domainExperienceBonus).toBeCloseTo(2.4, 4);
+    expect(result.scoreComponents?.domainRelevance).toBe(1);
     expect(result.aiSemanticScore).toBe(72);
-    expect(result.finalScore).toBe(Math.round(0.7 * 72 + 0.3 * 72));
+    expect(result.finalScore).toBe(Math.round(0.7 * 74 + 0.3 * 72));
     expect(mockedCallAi).not.toHaveBeenCalled();
   });
 
