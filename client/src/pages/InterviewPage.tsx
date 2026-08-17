@@ -12,7 +12,9 @@ import {
   sendPracticeMessage,
   completePracticeSession,
   getPracticeSummary,
+  listPracticeSessions,
   regeneratePracticeQuestions,
+  type PracticeSessionListItem,
 } from "../services/practice";
 import { getUserProfile } from "../services/profile";
 import type { Job } from "../types/jobs";
@@ -120,6 +122,143 @@ function ReviewPanel({
         </p>
       </div>
     </div>
+  );
+}
+
+function formatAttemptDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString();
+}
+
+/**
+ * Previous practice attempts, so history is somewhere the user can actually go.
+ *
+ * The attempts were already persisted and already listed inside an application's
+ * match review, but nothing on the interview screen led anywhere after finishing
+ * a session. This is the entry point, reusing the same list endpoint and the same
+ * summary panel the live session uses.
+ *
+ * Opening a completed attempt reads its stored summary — no regeneration, so
+ * reviewing an old attempt costs nothing and always shows the same text.
+ */
+function PastAttemptsPanel() {
+  const [attempts, setAttempts] = useState<PracticeSessionListItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [openSummary, setOpenSummary] = useState<InterviewAttemptSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    listPracticeSessions()
+      .then((result) => {
+        if (active) setAttempts(result.sessions);
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err instanceof Error ? err.message : "Failed to load history");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function open(attempt: PracticeSessionListItem) {
+    if (openId === attempt.id) {
+      setOpenId(null);
+      setOpenSummary(null);
+      return;
+    }
+    setOpenId(attempt.id);
+    setOpenSummary(null);
+    setSummaryLoading(true);
+    try {
+      setOpenSummary(await getPracticeSummary(attempt.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load that summary");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  if (attempts !== null && attempts.length === 0) return null;
+
+  return (
+    <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold text-slate-900">Your previous attempts</h3>
+      <p className="mt-2 text-sm text-slate-600">
+        Practising the same questions again? Open a finished attempt to see how you
+        scored last time.
+      </p>
+
+      {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      {attempts === null && !error ? (
+        <p className="mt-3 text-sm text-slate-500">Loading your history...</p>
+      ) : null}
+
+      <ul className="mt-4 space-y-2">
+        {(attempts ?? []).map((attempt) => {
+          const finished = attempt.status === "completed";
+          return (
+            <li key={attempt.id} className="rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => void open(attempt)}
+                disabled={!finished}
+                aria-expanded={openId === attempt.id}
+                className={`flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left ${
+                  finished ? "hover:bg-slate-50" : "cursor-default"
+                }`}
+              >
+                <span className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-semibold text-slate-800">
+                    {attempt.interviewType === "hr" ? "HR" : "Technical"}
+                  </span>
+                  <span className="text-slate-500">
+                    {attempt.answeredCount}/{attempt.questionCount} answered
+                  </span>
+                  <span
+                    className={
+                      finished
+                        ? "rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800"
+                        : "rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800"
+                    }
+                  >
+                    {finished ? "Completed" : "In progress"}
+                  </span>
+                  {formatAttemptDate(attempt.completedAt ?? attempt.createdAt) ? (
+                    <span className="text-xs text-slate-400">
+                      {formatAttemptDate(attempt.completedAt ?? attempt.createdAt)}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex items-center gap-3">
+                  {attempt.overallScore !== null ? (
+                    <span className="text-lg font-semibold text-indigo-900">
+                      {attempt.overallScore}
+                      <span className="text-xs font-medium text-indigo-300">/100</span>
+                    </span>
+                  ) : null}
+                  {finished ? (
+                    <span className="text-xs font-semibold text-indigo-700">
+                      {openId === attempt.id ? "Hide" : "View"}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+
+              {openId === attempt.id ? (
+                <div className="border-t border-slate-100 px-4 pb-4">
+                  <SummaryPanel summary={openSummary} loading={summaryLoading} />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -528,6 +667,7 @@ export function InterviewPage() {
             </div>
           </section>
         )}
+        {!practiceSessionId && <PastAttemptsPanel />}
         {practiceSessionId && (
           <>
             <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

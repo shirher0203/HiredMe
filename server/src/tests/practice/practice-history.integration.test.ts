@@ -292,6 +292,60 @@ describe("Practice session history", () => {
     expect(scores[0] - scores[1]).toBe(25);
   });
 
+  // The interview screen's "Your previous attempts" panel renders exactly this
+  // unfiltered listing, and relies on each row carrying enough to decide whether
+  // it is openable and what to show without a second request per attempt.
+  it("returns everything the practice-history panel needs in one unfiltered call", async () => {
+    const { token, userId } = makeAuthToken();
+    await seedSession(userId);
+    const finished = await seedSession(userId, { interviewType: "hr" });
+    await PracticeSessionModel.updateOne(
+      { _id: finished._id },
+      {
+        $set: {
+          status: "completed",
+          completedAt: new Date("2026-04-02T10:00:00.000Z"),
+          summary: {
+            summary:
+              "A stored summary long enough to clear the validator's minimum length for this field.",
+            overallScore: 77,
+            preserve_points: ["Clear structure"],
+            improve_points: ["More depth"],
+            topics_covered: ["behavioural"],
+            overall_feedback: "A solid attempt overall.",
+          },
+        },
+      }
+    );
+
+    const res = await request(app)
+      .get("/api/practice/sessions")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessions).toHaveLength(2);
+
+    const completed = res.body.sessions.find(
+      (s: { status: string }) => s.status === "completed"
+    );
+    const active = res.body.sessions.find(
+      (s: { status: string }) => s.status === "active"
+    );
+
+    // Completed attempts are the openable ones: they carry a score and a summary.
+    expect(completed).toBeDefined();
+    expect(completed.hasSummary).toBe(true);
+    expect(completed.overallScore).toBe(77);
+    expect(completed.completedAt).not.toBeNull();
+    expect(completed.interviewType).toBe("hr");
+
+    // In-progress attempts stay visible but are not openable.
+    expect(active).toBeDefined();
+    expect(active.hasSummary).toBe(false);
+    expect(active.answeredCount).toBe(1);
+    expect(active.questionCount).toBe(2);
+  });
+
   it("requires authentication", async () => {
     const res = await request(app).get("/api/practice/sessions");
 
