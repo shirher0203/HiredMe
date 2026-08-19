@@ -92,7 +92,7 @@ function getClientOrigin(): string {
   }
 
   const serverPublicUrl = process.env.SERVER_PUBLIC_URL?.trim();
-  if (serverPublicUrl && process.env.NODE_ENV === "production") {
+  if (serverPublicUrl) {
     return serverPublicUrl;
   }
 
