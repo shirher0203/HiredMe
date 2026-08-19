@@ -4,6 +4,9 @@ const AUTH_STORAGE_KEY = "hiredme.auth";
 export interface AuthUser {
   id: string;
   email: string;
+  providers?: {
+    google?: boolean;
+  };
   personalInfo?: RegistrationPersonalInfo;
 }
 
@@ -92,4 +95,18 @@ export function login(input: AuthInput): Promise<AuthSession> {
 
 export function register(input: AuthInput): Promise<AuthSession> {
   return submitAuth("/api/auth/register", input);
+}
+
+export function buildGoogleAuthUrl(redirectPath = "/profile"): string {
+  const params = new URLSearchParams({ redirect: redirectPath });
+  return `${API_BASE_URL}/api/auth/google/start?${params.toString()}`;
+}
+
+export function decodeGoogleSession(encoded: string): AuthSession {
+  const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "="
+  );
+  return JSON.parse(window.atob(padded)) as AuthSession;
 }

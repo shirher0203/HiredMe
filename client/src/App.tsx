@@ -13,6 +13,7 @@ export function App() {
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/auth/login" replace />} />
           <Route path="auth/:mode" element={<AuthPage />} />
+          <Route path="auth/google/callback" element={<GoogleAuthCallbackPage />} />
           <Route path="login" element={<Navigate to="/auth/login" replace />} />
           <Route
             path="register"

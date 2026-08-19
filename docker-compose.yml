@@ -38,8 +38,13 @@ services:
       NODE_ENV: development
       PORT: 5000
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-http://localhost:5000}
       MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-hiredme}:${MONGO_INITDB_ROOT_PASSWORD:-hiredme_password}@mongo:27017/${MONGO_INITDB_DATABASE:-hiredme}?authSource=admin
       JWT_SECRET: ${JWT_SECRET:-replace_with_at_least_32_characters_for_docker}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_KEY: ${GOOGLE_GENERATIVE_AI_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-lite-latest}

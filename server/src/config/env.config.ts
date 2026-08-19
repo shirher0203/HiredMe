@@ -50,6 +50,10 @@ export const envSchema = z
     // keys that can satisfy the refinement below.
     GOOGLE_GENERATIVE_AI_KEY: optionalKeySchema,
     GEMINI_API_KEY: optionalKeySchema,
+    GOOGLE_CLIENT_ID: optionalKeySchema,
+    GOOGLE_CLIENT_SECRET: optionalKeySchema,
+    GOOGLE_OAUTH_REDIRECT_URI: optionalKeySchema,
+    SERVER_PUBLIC_URL: optionalKeySchema,
     USE_MOCK_AI: z.preprocess(
       (value) => (value === undefined || value === "" ? "false" : value),
       z.enum(["true", "false"])

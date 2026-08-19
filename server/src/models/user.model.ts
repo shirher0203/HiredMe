@@ -36,6 +36,7 @@ const userSchema = new Schema(
   {
     email: { type: String, required: true, unique: true, index: true },
     passwordHash: { type: String, required: true },
+    googleId: { type: String, unique: true, sparse: true, index: true },
     personalInfo: { type: personalInfoSchema, default: () => ({}) },
     profile: { type: profileSchema, default: () => ({}) },
     profileAnalysis: { type: profileAnalysisSchema },
