@@ -86,6 +86,16 @@ function requireGoogleConfig() {
 }
 
 function getClientOrigin(): string {
+  const clientPublicOrigin = process.env.CLIENT_PUBLIC_URL?.trim();
+  if (clientPublicOrigin) {
+    return clientPublicOrigin;
+  }
+
+  const serverPublicUrl = process.env.SERVER_PUBLIC_URL?.trim();
+  if (serverPublicUrl && process.env.NODE_ENV === "production") {
+    return serverPublicUrl;
+  }
+
   return process.env.CLIENT_ORIGIN?.trim() || "http://localhost:5173";
 }
 
