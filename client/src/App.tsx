@@ -3,6 +3,7 @@ import { AppLayout } from "./components/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ApplicationsBoardPage } from "./pages/ApplicationsBoardPage";
 import { AuthPage } from "./pages/AuthPage";
+import { GoogleAuthCallbackPage } from "./pages/GoogleAuthCallbackPage";
 import { InterviewPage } from "./pages/InterviewPage";
 import { ProfilePage } from "./pages/ProfilePage";
 
