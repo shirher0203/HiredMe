@@ -68,3 +68,5 @@ server/.env*
 !server/.env.example
 client/.env*
 !client/.env.example
+PR_TIMELINE.md
+.claude/settings.json
