@@ -98,9 +98,13 @@ describe("buildDeterministicMatch", () => {
     expect(result.matchedRequired).toEqual(["react", "node"]);
     expect(result.missingRequired).toEqual(["mongodb"]);
     expect(result.matchedAdvantage).toEqual(["typescript"]);
-    expect(result.algorithmicScore).toBe(67);
+    // Was 67 (2 of 3 required skills). Advantage skills used to contribute
+    // nothing at all; one of two matched now adds a 5-point bonus, so the
+    // deterministic score is round(66.67 + 5) = 72.
+    expect(result.algorithmicScore).toBe(72);
+    expect(result.advantageBonus).toBe(5);
     expect(result.aiSemanticScore).toBe(60);
-    expect(result.finalScore).toBe(65);
+    expect(result.finalScore).toBe(Math.round(0.7 * 72 + 0.3 * 60));
     expect(result.explanation).toBe("solid overall fit");
   });
 

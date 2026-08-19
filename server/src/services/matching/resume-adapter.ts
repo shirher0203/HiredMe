@@ -9,16 +9,27 @@
 // to a single canonical entry.
 
 import type { ParsedResume } from "../ai/parsed-resume.types";
-import { normalizeSkills } from "./skills-normalizer";
+import { harvestKnownSkillsFrom, normalizeSkills } from "./skills-normalizer";
 
 export interface ResumeEnrichment {
   readonly enrichedSkills: string[];
+  /**
+   * Canonical skills that appear verbatim in the CV's prose — job titles, role
+   * responsibilities, achievements, project descriptions, the summary — but were
+   * never emitted into a skills array by the parser.
+   *
+   * Kept separate from `enrichedSkills` so the provenance of a match stays
+   * visible and so callers can choose whether to include them.
+   */
+  readonly evidenceSkills: string[];
   readonly projectTechnologies: string[];
   readonly experienceYears: number;
   readonly educationSummary: string;
   readonly topProjectsSummary: string;
   readonly workExperienceSummary: string;
   readonly languagesSummary: string;
+  /** Whether the CV names a completed or in-progress formal qualification. */
+  readonly hasDegree: boolean;
 }
 
 function compactString(value: string | null | undefined): string {
@@ -112,14 +123,46 @@ export function enrichFromResume(resume: ParsedResume): ResumeEnrichment {
   const experienceYears =
     Number.isFinite(rawYears) && rawYears > 0 ? Math.round(rawYears) : 0;
 
+  // The CV's own words, scanned for skills the taxonomy already knows. Nothing
+  // here is inferred: a term only appears if the candidate wrote it.
+  const proseSources: string[] = [];
+  const summary = compactString(resume.professional_summary);
+  if (summary !== "") proseSources.push(summary);
+  for (const role of resume.work_experience) {
+    const title = compactString(role.job_title);
+    if (title !== "") proseSources.push(title);
+    proseSources.push(...role.responsibilities, ...role.achievements);
+  }
+  for (const project of resume.projects) {
+    const description = compactString(project.description);
+    if (description !== "") proseSources.push(description);
+  }
+  for (const education of resume.education) {
+    const field = compactString(education.field_of_study);
+    if (field !== "") proseSources.push(field);
+  }
+
+  const alreadyKnown = new Set(enrichedSkills);
+  const evidenceSkills = harvestKnownSkillsFrom(proseSources).filter(
+    (skill) => !alreadyKnown.has(skill)
+  );
+
+  const hasDegree = resume.education.some(
+    (entry) =>
+      compactString(entry.degree_type) !== "" ||
+      compactString(entry.field_of_study) !== ""
+  );
+
   return {
     enrichedSkills,
+    evidenceSkills,
     projectTechnologies,
     experienceYears,
     educationSummary: summarizeEducation(resume),
     topProjectsSummary: summarizeTopProjects(resume),
     workExperienceSummary: summarizeWorkExperience(resume),
     languagesSummary: summarizeLanguages(resume),
+    hasDegree,
   };
 }
 

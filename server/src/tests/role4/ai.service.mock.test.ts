@@ -8,6 +8,7 @@
 
 jest.mock("../../services/ai/ai.client", () => ({
   callAi: jest.fn(),
+  createAiDeadline: jest.fn(() => Date.now() + 45_000),
   getActiveModelName: jest.fn(() => "gemini-test-model"),
   isApiKeyConfigured: jest.fn(() => true),
 }));
@@ -82,13 +83,19 @@ describe("ai.service — mock mode (USE_MOCK_AI=true)", () => {
     expect(result.matchedRequired).toEqual(["react", "node"]);
     expect(result.missingRequired).toEqual(["mongodb"]);
     expect(result.matchedAdvantage).toEqual(["typescript"]);
-    expect(result.algorithmicScore).toBe(67);
+    // 66.67 coverage (2 of 3 required) + 5 advantage (1 of 2) + 2.4 relevant
+    // experience = 74.
+    //
+    // The experience term is new. It was 72 while the deterministic score was
+    // coverage plus advantage only; this profile has one year against a junior
+    // role and two matched requirements, so domain relevance is established and
+    // one fifth of the experience allowance is earned: 12 * (1/5) * 1 = 2.4.
+    expect(result.algorithmicScore).toBe(74);
+    expect(result.advantageBonus).toBe(5);
+    expect(result.scoreComponents?.domainExperienceBonus).toBeCloseTo(2.4, 4);
+    expect(result.scoreComponents?.domainRelevance).toBe(1);
     expect(result.aiSemanticScore).toBe(72);
-    // round(0.7*67 + 0.3*72) = round(46.9 + 21.6) = round(68.5) = 69
-    // Spec requirement: round(0.7*67 + 0.3*72) = 68
-    // JS Math.round(68.5) rounds to 69 (half-to-even would be 68). Verify
-    // the formula output matches Math.round semantics.
-    expect(result.finalScore).toBe(Math.round(0.7 * 67 + 0.3 * 72));
+    expect(result.finalScore).toBe(Math.round(0.7 * 74 + 0.3 * 72));
     expect(mockedCallAi).not.toHaveBeenCalled();
   });
 
@@ -370,6 +377,91 @@ describe("ai.service — real-mode paths via mocked callAi (no network)", () => 
 
     expect(result.questions.map((q) => q.id)).toEqual(["q1", "q2", "kept"]);
     expect(mockedCallAi).toHaveBeenCalledTimes(1);
+  });
+
+  it("generateInterviewQuestions: a short response is retried instead of silently accepted", async () => {
+    const short = JSON.stringify({
+      questions: [
+        { id: "a", question: "Q1", topic: "t", expectedFocus: "f" },
+        { id: "b", question: "Q2", topic: "t", expectedFocus: "f" },
+        { id: "c", question: "Q3", topic: "t", expectedFocus: "f" },
+      ],
+    });
+    const full = JSON.stringify({
+      questions: [
+        { id: "a", question: "Q1", topic: "t", expectedFocus: "f" },
+        { id: "b", question: "Q2", topic: "t", expectedFocus: "f" },
+        { id: "c", question: "Q3", topic: "t", expectedFocus: "f" },
+        { id: "d", question: "Q4", topic: "t", expectedFocus: "f" },
+        { id: "e", question: "Q5", topic: "t", expectedFocus: "f" },
+      ],
+    });
+    mockedCallAi.mockResolvedValueOnce(short).mockResolvedValueOnce(full);
+
+    const result = await generateInterviewQuestions({
+      interviewType: "technical",
+      profileSkills: ["react"],
+      count: 5,
+    });
+
+    // Three questions for a five-question request used to become a
+    // three-question interview with no warning.
+    expect(result.questions).toHaveLength(5);
+    expect(mockedCallAi).toHaveBeenCalledTimes(2);
+  });
+
+  it("generateInterviewQuestions: fails loudly when the count is never met", async () => {
+    const short = JSON.stringify({
+      questions: [{ id: "a", question: "Q1", topic: "t", expectedFocus: "f" }],
+    });
+    mockedCallAi.mockResolvedValue(short);
+
+    await expect(
+      generateInterviewQuestions({
+        interviewType: "technical",
+        profileSkills: ["react"],
+        count: 4,
+      })
+    ).rejects.toThrow(/generateInterviewQuestions: retry failed/);
+  });
+
+  it("generateInterviewQuestions: an over-long response is trimmed to the requested count", async () => {
+    mockedCallAi.mockResolvedValueOnce(
+      JSON.stringify({
+        questions: [
+          { id: "a", question: "Q1", topic: "t", expectedFocus: "f" },
+          { id: "b", question: "Q2", topic: "t", expectedFocus: "f" },
+          { id: "c", question: "Q3", topic: "t", expectedFocus: "f" },
+        ],
+      })
+    );
+
+    const result = await generateInterviewQuestions({
+      interviewType: "technical",
+      profileSkills: ["react"],
+      count: 2,
+    });
+
+    expect(result.questions.map((q) => q.id)).toEqual(["a", "b"]);
+  });
+
+  it("passes the per-operation generation config through to the client", async () => {
+    mockedCallAi.mockResolvedValueOnce(
+      JSON.stringify({
+        roleTitle: "Dev",
+        requiredSkills: [],
+        advantageSkills: [],
+        seniorityLevel: "junior",
+        summary: "s",
+      })
+    );
+
+    await analyzeJob("Some role");
+
+    expect(mockedCallAi).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ jsonMode: true, temperature: 0.2 })
+    );
   });
 
   it("calculateMatch: AI semantic score is clamped and flows into buildDeterministicMatch", async () => {

@@ -40,15 +40,6 @@ export function AppLayout() {
             {session && (
               <>
                 <NavLink
-                  to="/match"
-                  className={({ isActive }) =>
-                    `${linkClass} ${isActive ? activeClass : ""}`
-                  }
-                  end
-                >
-                  Match
-                </NavLink>
-                <NavLink
                   to="/applications"
                   className={({ isActive }) =>
                     `${linkClass} ${isActive ? activeClass : ""}`

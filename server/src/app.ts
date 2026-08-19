@@ -11,6 +11,7 @@ import { assignmentsRouter } from "./routes/assignments.routes";
 import { githubRouter } from "./routes/github.routes";
 import { matchFlowRouter } from "./routes/match-flow.routes";
 import { userProfileRouter } from "./routes/user-profile.routes";
+import { aiMetricsMiddleware } from "./middlewares/ai-metrics.middleware";
 import { authMiddleware } from "./middlewares/auth.middleware";
 import { errorMiddleware } from "./middlewares/error.middleware";
 import { createOpenApiSpec } from "./docs/openapi";
@@ -24,6 +25,7 @@ export function createApp() {
     })
   );
   app.use(express.json({ limit: "2mb" }));
+  app.use(aiMetricsMiddleware);
   const openApiSpec = createOpenApiSpec();
 
   app.get("/api/health", (_req, res) => {

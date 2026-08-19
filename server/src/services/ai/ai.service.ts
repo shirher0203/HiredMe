@@ -47,7 +47,13 @@ import type {
   SuggestedSkill,
 } from "./parsed-resume.types";
 
-import { callAi, getActiveModelName, isApiKeyConfigured } from "./ai.client";
+import {
+  callAi,
+  createAiDeadline,
+  getActiveModelName,
+  isApiKeyConfigured,
+  type AiCallOptions,
+} from "./ai.client";
 import {
   logAiStart,
   logAiSuccess,
@@ -69,7 +75,11 @@ import {
   buildSummarizeAttemptPrompt,
 } from "./prompts";
 import { buildDeterministicMatch } from "../matching/matching.service";
-import { normalizeSkills } from "../matching/skills-normalizer";
+import {
+  atomizeSkills,
+  normalizeSkill,
+  normalizeSkills,
+} from "../matching/skills-normalizer";
 import {
   enrichFromResume,
   mergeProfileSkillsWithResume,
@@ -194,6 +204,20 @@ function requireEnum<T extends string>(
   return value as T;
 }
 
+/**
+ * Fisher-Yates. The previous `sort(() => 0.5 - Math.random())` is not a
+ * shuffle: comparator results are inconsistent, so the permutation it produces
+ * is biased toward the original order.
+ */
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function ensureQuestionIds(
   questions: InterviewQuestion[]
 ): InterviewQuestion[] {
@@ -205,19 +229,67 @@ function ensureQuestionIds(
   });
 }
 
+/**
+ * Per-operation generation settings.
+ *
+ * Extraction and matching want near-deterministic output; question generation
+ * wants variety so two sessions for the same job are not the same interview;
+ * evaluation and summarisation sit in between. Every operation returns JSON, so
+ * all of them ask the provider for JSON directly.
+ *
+ * `maxOutputTokens` is a truncation guard, not a savings target: it is sized
+ * above the largest legitimate response each operation produces. parseResume is
+ * the largest by a wide margin because of its suggested-skills block.
+ */
+export const AI_OPERATION_CONFIG: Record<string, AiCallOptions> = {
+  analyzeProfile: { temperature: 0.2, maxOutputTokens: 2048, jsonMode: true },
+  analyzeJob: { temperature: 0.2, maxOutputTokens: 4096, jsonMode: true },
+  calculateMatch: { temperature: 0.2, maxOutputTokens: 2048, jsonMode: true },
+  generateInterviewQuestions: {
+    temperature: 0.8,
+    maxOutputTokens: 2048,
+    jsonMode: true,
+  },
+  evaluateAnswer: { temperature: 0.3, maxOutputTokens: 1536, jsonMode: true },
+  evaluateHomeAssignment: {
+    temperature: 0.3,
+    maxOutputTokens: 1536,
+    jsonMode: true,
+  },
+  analyzeGithubRepo: { temperature: 0.2, maxOutputTokens: 2048, jsonMode: true },
+  summarizeInterviewAttempt: {
+    temperature: 0.4,
+    maxOutputTokens: 1536,
+    jsonMode: true,
+  },
+  parseResume: { temperature: 0.1, maxOutputTokens: 8192, jsonMode: true },
+};
+
+function configFor(functionName: string): AiCallOptions {
+  return AI_OPERATION_CONFIG[functionName] ?? { jsonMode: true };
+}
+
 const RETRY_SUFFIX =
   "\n\nYour previous response was invalid. Return ONLY valid JSON matching the exact schema. No markdown. No explanations. No extra fields.";
 
 /**
  * Single-retry helper for AI calls.
  *
- * Retry policy (per PROJECT_PLAN_ROLE4.md):
- *   - The first `callAi` call is NOT retried — transport / config errors
- *     (e.g. missing GEMINI_API_KEY) bubble up as-is.
- *   - Only parse / validation failures trigger a retry, with a stricter
- *     follow-up prompt.
- *   - At most one retry. If the retry also fails, throw a descriptive
- *     error naming the function.
+ * Two retry concerns meet here, and they are deliberately not the same thing:
+ *
+ *   - Transport failures (429, 503, socket errors, timeouts) are retried inside
+ *     `callAi`. This function does not retry them and must not: adding a second
+ *     transport retry would multiply the attempt count.
+ *   - Parse / validation failures are retried here, exactly once, by re-asking
+ *     with a stricter prompt. If the retry also fails to validate, a descriptive
+ *     error naming the function is thrown.
+ *   - Config errors (e.g. missing GEMINI_API_KEY) are non-retryable at both
+ *     layers and surface on the first attempt.
+ *
+ * Both `callAi` calls share one deadline created here, so the whole logical
+ * operation — every transport attempt of both calls, plus their backoffs — is
+ * bounded by `AI_TOTAL_BUDGET_MS`. Without it the layers compose
+ * multiplicatively: two calls x (1 + AI_MAX_RETRIES) attempts x AI_TIMEOUT_MS.
  */
 async function withOneRetry<T>(
   functionName: string,
@@ -225,13 +297,14 @@ async function withOneRetry<T>(
   parseAndValidate: (raw: string) => T,
   onRawOutput?: (raw: string) => void
 ): Promise<T> {
-  const rawFirst = await callAi(prompt);
+  const config = { ...configFor(functionName), deadlineAt: createAiDeadline() };
+  const rawFirst = await callAi(prompt, config);
   try {
     const out = parseAndValidate(rawFirst);
     if (onRawOutput) onRawOutput(rawFirst);
     return out;
   } catch (firstErr) {
-    const rawRetry = await callAi(prompt + RETRY_SUFFIX);
+    const rawRetry = await callAi(prompt + RETRY_SUFFIX, config);
     try {
       const out = parseAndValidate(rawRetry);
       if (onRawOutput) onRawOutput(rawRetry);
@@ -479,9 +552,12 @@ function validateSkillsBlock(
   );
   const soft = normalizeStringArrayField(raw.soft_skills, "skills.soft_skills", fn);
   return {
-    technical_skills: normalizeSkills(technical),
+    // Atomized, not just normalized: a resume listing "HTML/CSS" or
+    // "TCP/IP networking and protocols" becomes separate comparable skills.
+    // soft_skills stays as written — it is prose, not a matchable vocabulary.
+    technical_skills: atomizeSkills(technical),
     soft_skills: soft,
-    tools_and_software: normalizeSkills(tools),
+    tools_and_software: atomizeSkills(tools),
   };
 }
 
@@ -499,7 +575,7 @@ function validateProjectEntry(
   return {
     project_name: coerceNullableString(obj.project_name),
     description: coerceNullableString(obj.description),
-    technologies_used: normalizeSkills(technologies),
+    technologies_used: atomizeSkills(technologies),
     link: coerceNullableString(obj.link),
   };
 }
@@ -730,17 +806,77 @@ function validateProfileAnalysis(raw: string): ProfileAnalysis {
   };
 }
 
+const JOB_ANALYSIS_KEYS = [
+  "roleTitle",
+  "requiredSkills",
+  "advantageSkills",
+  "toolsMentioned",
+  "impliedSkills",
+  "nonSkillRequirements",
+  "skillRelations",
+  "seniorityLevel",
+  "summary",
+] as const;
+
+/**
+ * Job skills are canonicalized here, at ingestion, exactly like resume skills.
+ * They used to persist as raw title-case prose ("Identity Threat Detection and
+ * Response") and were only normalized transiently at compare time, so the two
+ * sides of a match were never stored in the same vocabulary.
+ */
+function canonicalizeJobSkills(
+  value: unknown,
+  fieldName: string,
+  fn: string
+): string[] {
+  return atomizeSkills(requireStringArray(value, fieldName, fn));
+}
+
+function validateSkillRelations(
+  value: unknown,
+  fn: string
+): Record<string, string[]> {
+  if (value === undefined || value === null) return {};
+  if (!isPlainObject(value)) {
+    throw new Error(`${fn}: field 'skillRelations' is not an object`);
+  }
+
+  const relations: Record<string, string[]> = {};
+  for (const [rawSkill, rawTerms] of Object.entries(value)) {
+    const skill = normalizeSkill(rawSkill);
+    if (skill === "") continue;
+    const terms = requireStringArray(
+      rawTerms,
+      `skillRelations['${rawSkill}']`,
+      fn
+    );
+    const canonical = normalizeSkills(terms).filter((term) => term !== skill);
+    if (canonical.length === 0) continue;
+    relations[skill] = canonical;
+  }
+  return relations;
+}
+
 function validateJobAnalysis(raw: string): JobAnalysis {
   const fn = "analyzeJob";
   const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
-  return {
+  if (!isPlainObject(parsed)) {
+    throw new Error(`${fn}: top-level value is not an object`);
+  }
+  for (const key of Object.keys(parsed)) {
+    if (!(JOB_ANALYSIS_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`${fn}: unexpected top-level key '${key}'`);
+    }
+  }
+
+  const result: JobAnalysis = {
     roleTitle: requireString(parsed.roleTitle, "roleTitle", fn),
-    requiredSkills: requireStringArray(
+    requiredSkills: canonicalizeJobSkills(
       parsed.requiredSkills,
       "requiredSkills",
       fn
     ),
-    advantageSkills: requireStringArray(
+    advantageSkills: canonicalizeJobSkills(
       parsed.advantageSkills,
       "advantageSkills",
       fn
@@ -753,6 +889,34 @@ function validateJobAnalysis(raw: string): JobAnalysis {
     ),
     summary: requireString(parsed.summary, "summary", fn),
   };
+
+  if (parsed.toolsMentioned !== undefined) {
+    result.toolsMentioned = canonicalizeJobSkills(
+      parsed.toolsMentioned,
+      "toolsMentioned",
+      fn
+    );
+  }
+  if (parsed.impliedSkills !== undefined) {
+    result.impliedSkills = canonicalizeJobSkills(
+      parsed.impliedSkills,
+      "impliedSkills",
+      fn
+    );
+  }
+  if (parsed.nonSkillRequirements !== undefined) {
+    // Kept as written: these are shown to the candidate, not compared.
+    result.nonSkillRequirements = normalizeStringArrayField(
+      parsed.nonSkillRequirements,
+      "nonSkillRequirements",
+      fn
+    );
+  }
+  if (parsed.skillRelations !== undefined) {
+    result.skillRelations = validateSkillRelations(parsed.skillRelations, fn);
+  }
+
+  return result;
 }
 
 function validateSemanticMatch(raw: string): SemanticMatchAiResponse {
@@ -835,12 +999,31 @@ function extractMatchExtras(
   return extras;
 }
 
-function validateQuestions(raw: string): { questions: InterviewQuestion[] } {
+/**
+ * Validates a questions response, optionally enforcing the requested count.
+ *
+ * Without `expectedCount` a model that returns three questions for a
+ * five-question request silently produced a three-question interview. Falling
+ * short now fails validation, which triggers the stricter retry prompt.
+ */
+function validateQuestions(
+  raw: string,
+  expectedCount?: number
+): { questions: InterviewQuestion[] } {
   const fn = "generateInterviewQuestions";
   const parsed = parseJsonFromAi<Record<string, unknown>>(raw);
   const questionsRaw = parsed.questions;
   if (!Array.isArray(questionsRaw)) {
     throw new Error(`${fn}: field 'questions' is not an array`);
+  }
+  if (
+    typeof expectedCount === "number" &&
+    expectedCount > 0 &&
+    questionsRaw.length < expectedCount
+  ) {
+    throw new Error(
+      `${fn}: expected ${expectedCount} questions but received ${questionsRaw.length}`
+    );
   }
 
   const validated: InterviewQuestion[] = questionsRaw.map((q, i) => {
@@ -865,7 +1048,12 @@ function validateQuestions(raw: string): { questions: InterviewQuestion[] } {
     };
   });
 
-  return { questions: ensureQuestionIds(validated) };
+  const bounded =
+    typeof expectedCount === "number" && expectedCount > 0
+      ? validated.slice(0, expectedCount)
+      : validated;
+
+  return { questions: ensureQuestionIds(bounded) };
 }
 
 function validateAnswerEvaluation(raw: string): AnswerEvaluation {
@@ -1090,9 +1278,24 @@ export async function calculateMatch(
     const rawProfileSkills = profile?.skills ?? [];
     const requiredSkills = jobAnalysis?.requiredSkills ?? [];
     const advantageSkills = jobAnalysis?.advantageSkills ?? [];
+    // Absent on jobs analyzed before relations / tools were extracted; matching
+    // then falls back to the curated relation map and simply scores no tools.
+    const matchOptions = {
+      skillRelations: jobAnalysis?.skillRelations ?? {},
+      toolsMentioned: jobAnalysis?.toolsMentioned ?? [],
+      nonSkillRequirements: jobAnalysis?.nonSkillRequirements ?? [],
+    };
 
     if (!resume) {
       const profileSkills = rawProfileSkills;
+      // Without a parsed resume the only experience/education signal is whatever
+      // the profile form captured.
+      const formOptions = {
+        ...matchOptions,
+        experienceYears: profile?.experienceYears ?? 0,
+        hasDegree:
+          typeof profile?.education === "string" && profile.education.trim() !== "",
+      };
 
       if (isMockMode()) {
         return buildDeterministicMatch(
@@ -1100,7 +1303,9 @@ export async function calculateMatch(
           requiredSkills,
           advantageSkills,
           mockSemanticMatch.aiSemanticScore,
-          mockSemanticMatch.explanation
+          mockSemanticMatch.explanation,
+          undefined,
+          formOptions
         );
       }
 
@@ -1123,12 +1328,22 @@ export async function calculateMatch(
         requiredSkills,
         advantageSkills,
         semantic.aiSemanticScore,
-        semantic.explanation
+        semantic.explanation,
+        undefined,
+        formOptions
       );
     }
 
     const enrichment = enrichFromResume(resume);
     const profileSkills = mergeProfileSkillsWithResume(rawProfileSkills, enrichment);
+    // The resume carries the richer signals: skills the parser left in prose,
+    // the experience estimate, and whether a qualification is named.
+    const resumeOptions = {
+      ...matchOptions,
+      evidenceSkills: enrichment.evidenceSkills,
+      experienceYears: enrichment.experienceYears,
+      hasDegree: enrichment.hasDegree,
+    };
 
     if (isMockMode()) {
       return buildDeterministicMatch(
@@ -1137,7 +1352,8 @@ export async function calculateMatch(
         advantageSkills,
         mockResumeAwareSemanticMatch.aiSemanticScore,
         mockResumeAwareSemanticMatch.explanation,
-        extractMatchExtras(mockResumeAwareSemanticMatch)
+        extractMatchExtras(mockResumeAwareSemanticMatch),
+        resumeOptions
       );
     }
 
@@ -1166,7 +1382,8 @@ export async function calculateMatch(
       advantageSkills,
       semantic.aiSemanticScore,
       semantic.explanation,
-      extractMatchExtras(semantic)
+      extractMatchExtras(semantic),
+      resumeOptions
     );
   });
 }
@@ -1176,10 +1393,16 @@ export async function generateInterviewQuestions(
 ): Promise<{ questions: InterviewQuestion[] }> {
   return instrument("generateInterviewQuestions", async (ctx) => {
     if (isMockMode()) {
-      // In mock mode, shuffle and select subset to simulate variation
       const timestamp = Date.now();
-      const shuffled = [...mockInterviewQuestions].sort(() => 0.5 - Math.random());
-      const sliced = shuffled.slice(0, Math.max(0, input.count));
+      // Prefer questions the caller has not already seen, then fill from the
+      // rest, so mock mode reflects the exclusion behaviour too.
+      const excluded = new Set(
+        (input.excludeQuestions ?? []).map((question) => question.trim())
+      );
+      const unseen = mockInterviewQuestions.filter((q) => !excluded.has(q.question));
+      const seen = mockInterviewQuestions.filter((q) => excluded.has(q.question));
+      const pool = shuffle([...unseen]).concat(shuffle([...seen]));
+      const sliced = pool.slice(0, Math.max(0, input.count));
       const uniqueQuestions = sliced.map((q, i) => ({
         ...q,
         id: `q_${timestamp}_${i}`,
@@ -1193,13 +1416,15 @@ export async function generateInterviewQuestions(
       jobRequiredSkills: input.jobRequiredSkills,
       count: input.count,
       language: input.language,
+      excludeQuestions: input.excludeQuestions,
+      cvContext: input.cvContext,
     });
     ctx.recordPrompt(prompt);
 
     return withOneRetry<{ questions: InterviewQuestion[] }>(
       "generateInterviewQuestions",
       prompt,
-      validateQuestions,
+      (raw) => validateQuestions(raw, input.count),
       ctx.recordOutput
     );
   });

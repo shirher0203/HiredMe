@@ -46,7 +46,8 @@ export const envSchema = z
         invalid_type_error: "must be a string",
       })
       .min(32, "must be at least 32 characters"),
-    OPENAI_API_KEY: optionalKeySchema,
+    // Gemini is the only provider the AI client can use, so these are the only
+    // keys that can satisfy the refinement below.
     GOOGLE_GENERATIVE_AI_KEY: optionalKeySchema,
     GEMINI_API_KEY: optionalKeySchema,
     GOOGLE_CLIENT_ID: optionalKeySchema,
@@ -61,14 +62,13 @@ export const envSchema = z
   .superRefine((env, ctx) => {
     if (
       env.USE_MOCK_AI !== "true" &&
-      !env.OPENAI_API_KEY &&
       !env.GOOGLE_GENERATIVE_AI_KEY &&
       !env.GEMINI_API_KEY
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["OPENAI_API_KEY/GOOGLE_GENERATIVE_AI_KEY/GEMINI_API_KEY"],
-        message: "at least one primary LLM API key is required when USE_MOCK_AI is not true",
+        path: ["GEMINI_API_KEY/GOOGLE_GENERATIVE_AI_KEY"],
+        message: "a Gemini API key is required when USE_MOCK_AI is not true",
       });
     }
   });

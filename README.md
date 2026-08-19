@@ -63,7 +63,7 @@ HIREDME is a full-stack web system composed of:
 - Mongoose
 
 **AI & Integrations**
-- OpenAI API
+- Google Gemini API
 - Google OAuth & Calendar API
 - GitHub API
 
@@ -108,7 +108,7 @@ Services:
 - Health check: http://localhost:5000/api/health
 - MongoDB: localhost:27017, with data persisted in the `mongo-data` Docker volume
 
-By default, Docker runs with `USE_MOCK_AI=false`, so provide one of `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_KEY`, or `GEMINI_API_KEY` in `.env`. For offline local development, set `USE_MOCK_AI=true`.
+By default, Docker runs with `USE_MOCK_AI=false`, so provide `GEMINI_API_KEY` (or `GOOGLE_GENERATIVE_AI_KEY`) in `.env`. Google Gemini is the only supported AI provider — see [AI_SETUP_GUIDE.md](AI_SETUP_GUIDE.md). For offline local development, set `USE_MOCK_AI=true`.
 
 Common commands:
 
@@ -127,6 +127,6 @@ docker build --target production -t hiredme-client ./client
 
 The development client calls the backend directly through `VITE_API_BASE_URL=http://localhost:5000`. If `VITE_API_BASE_URL` is empty, Vite can proxy `/api` requests to the `server` container through `VITE_PROXY_API_TARGET`.
 
-For Nginx in front of the Vite dev server on port `5173`, see [docs/nginx-vite-reverse-proxy.md](docs/nginx-vite-reverse-proxy.md).
+The production client image serves the built SPA through Nginx and proxies `/api/` to the server container; that configuration lives in [client/nginx.conf](client/nginx.conf).
 
 ---

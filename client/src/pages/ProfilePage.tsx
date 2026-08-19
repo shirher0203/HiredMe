@@ -1,6 +1,8 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { MultilineListField } from "../components/MultilineListField";
 import { getAuthSession } from "../services/auth";
 import { getUserProfile, parseCv, saveUserProfile } from "../services/profile";
+import { sanitizeList } from "../utils/listText";
 import type {
   ParsedResume,
   ParsedResumeEducation,
@@ -73,15 +75,29 @@ function nullable(value: string): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
-function splitList(value: string): string[] {
-  return value
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function joinList(value: string[]): string {
-  return value.join("\n");
+/**
+ * Trims and drops empty entries in every list the profile form can edit.
+ * Applied on save so the payload sent to the server never carries the blank
+ * lines a user leaves behind while typing.
+ */
+function sanitizeProfileLists(profile: ParsedResume): ParsedResume {
+  return {
+    ...profile,
+    work_experience: profile.work_experience.map((entry) => ({
+      ...entry,
+      responsibilities: sanitizeList(entry.responsibilities),
+      achievements: sanitizeList(entry.achievements),
+    })),
+    skills: {
+      technical_skills: sanitizeList(profile.skills.technical_skills),
+      soft_skills: sanitizeList(profile.skills.soft_skills),
+      tools_and_software: sanitizeList(profile.skills.tools_and_software),
+    },
+    projects: profile.projects.map((entry) => ({
+      ...entry,
+      technologies_used: sanitizeList(entry.technologies_used),
+    })),
+  };
 }
 
 
@@ -267,7 +283,7 @@ export function ProfilePage() {
     setError(null);
     setIsSaving(true);
     try {
-      const saved = await saveUserProfile(current);
+      const saved = await saveUserProfile(sanitizeProfileLists(current));
       setProfile(saved);
       setIsEditing(false);
     } catch (err) {
@@ -405,30 +421,26 @@ export function ProfilePage() {
                     />
                   ))}
                 </div>
-                <TextArea
+                <MultilineListField
                   label="Responsibilities"
-                  value={joinList(item.responsibilities)}
-                  onChange={(value) =>
+                  values={item.responsibilities}
+                  onChange={(values) =>
                     updateProfile((p) => ({
                       ...p,
                       work_experience: p.work_experience.map((entry, i) =>
-                        i === index
-                          ? { ...entry, responsibilities: splitList(value ?? "") }
-                          : entry
+                        i === index ? { ...entry, responsibilities: values } : entry
                       ),
                     }))
                   }
                 />
-                <TextArea
+                <MultilineListField
                   label="Achievements"
-                  value={joinList(item.achievements)}
-                  onChange={(value) =>
+                  values={item.achievements}
+                  onChange={(values) =>
                     updateProfile((p) => ({
                       ...p,
                       work_experience: p.work_experience.map((entry, i) =>
-                        i === index
-                          ? { ...entry, achievements: splitList(value ?? "") }
-                          : entry
+                        i === index ? { ...entry, achievements: values } : entry
                       ),
                     }))
                   }
@@ -511,17 +523,18 @@ export function ProfilePage() {
                 ["Soft skills", "soft_skills"],
                 ["Tools/software", "tools_and_software"],
               ] as const).map(([label, key]) => (
-                <TextArea
+                <MultilineListField
                   key={key}
                   label={label}
                   rows={6}
-                  value={joinList(current.skills[key])}
-                  onChange={(value) =>
+                  values={current.skills[key]}
+                  onChange={(values) =>
                     updateProfile((p) => ({
                       ...p,
-                      skills: { ...p.skills, [key]: splitList(value ?? "") },
+                      skills: { ...p.skills, [key]: values },
                     }))
                   }
+                  hint="One skill per line."
                 />
               ))}
             </div>
@@ -580,19 +593,18 @@ export function ProfilePage() {
                     }))
                   }
                 />
-                <TextArea
+                <MultilineListField
                   label="Technologies used"
-                  value={joinList(item.technologies_used)}
-                  onChange={(value) =>
+                  values={item.technologies_used}
+                  onChange={(values) =>
                     updateProfile((p) => ({
                       ...p,
                       projects: p.projects.map((entry, i) =>
-                        i === index
-                          ? { ...entry, technologies_used: splitList(value ?? "") }
-                          : entry
+                        i === index ? { ...entry, technologies_used: values } : entry
                       ),
                     }))
                   }
+                  hint="One technology per line."
                 />
                 <button
                   type="button"
